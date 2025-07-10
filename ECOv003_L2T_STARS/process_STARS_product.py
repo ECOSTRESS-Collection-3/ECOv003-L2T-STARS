@@ -16,6 +16,7 @@ from harmonized_landsat_sentinel import HLS2CMR
 from ECOv003_granules import L2TSTARS, NDVI_COLORMAP, ALBEDO_COLORMAP
 from ECOv003_exit_codes import BlankOutput
 
+from .constants import *
 from .VIIRS import VIIRSDownloaderNDVI, VIIRSDownloaderAlbedo
 from .generate_NDVI_coarse_directory import generate_NDVI_coarse_directory
 from .generate_NDVI_fine_directory import generate_NDVI_fine_directory
@@ -57,8 +58,8 @@ def process_STARS_product(
     using_prior: bool = False,
     calibrate_fine: bool = False,
     remove_input_staging: bool = True,
-    remove_prior: bool = True,
-    remove_posterior: bool = True,
+    remove_prior: bool = REMOVE_PRIOR,
+    remove_posterior: bool = REMOVE_POSTERIOR,
     threads: Union[int, str] = "auto",
     num_workers: int = 4,
 ):

@@ -56,8 +56,8 @@ def L2T_STARS(
     calibrate_fine: bool = DEFAULT_CALIBRATE_FINE,
     sources_only: bool = False,
     remove_input_staging: bool = True,
-    remove_prior: bool = True,
-    remove_posterior: bool = True,
+    remove_prior: bool = REMOVE_PRIOR,
+    remove_posterior: bool = REMOVE_POSTERIOR,
     threads: Union[int, str] = "auto",
     num_workers: int = 4,
     overwrite: bool = False, # New parameter for overwriting existing files

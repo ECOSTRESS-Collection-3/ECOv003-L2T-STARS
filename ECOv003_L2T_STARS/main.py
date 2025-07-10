@@ -105,14 +105,14 @@ def main():
         "--no-remove-prior",
         action="store_false",
         dest="remove_prior",
-        default=True,
+        default=REMOVE_PRIOR,
         help="Do NOT remove prior intermediate files after use.",
     )
     parser.add_argument(
         "--no-remove-posterior",
         action="store_false",
         dest="remove_posterior",
-        default=True,
+        default=REMOVE_POSTERIOR,
         help="Do NOT remove posterior intermediate files after product generation.",
     )
     parser.add_argument(
