@@ -212,7 +212,7 @@ if length(coarse_images) == 0
     coarse_images = Raster(fill(NaN, x_coarse_size, y_coarse_size, 1), dims=(coarse_dims[1:2]..., Band(1:1)), missingval=NaN)
     coarse_array = zeros(x_coarse_size, y_coarse_size, 1)
     coarse_array .= NaN
-    coarse_dates = [dates[1]]
+    coarse_dates = [fine_end_date]
 else
     coarse_images = Raster(cat(coarse_images..., dims=3), dims=(coarse_dims[1:2]..., Band(1:length(coarse_dates))), missingval=NaN)
     coarse_array = Array{Float64}(coarse_images)
@@ -249,13 +249,17 @@ if length(fine_images) == 0
     fine_images = Raster(fill(NaN, x_fine_size, y_fine_size, 1), dims=(fine_dims[1:2]..., Band(1:1)), missingval=NaN)
     fine_array = zeros(x_fine_size, y_fine_size, 1)
     fine_array .= NaN
-    fine_dates = [dates[1]]
+    fine_dates = [fine_end_date]
 else
     fine_images = Raster(cat(fine_images..., dims=3), dims=(fine_dims[1:2]..., Band(1:length(fine_dates))), missingval=NaN)
     fine_array = Array{Float64}(fine_images)
 end
 
-target_date = dates[end]
+if length(dates) == 0
+    target_date = fine_end_date
+else
+    target_date = dates[end]
+end
 target_time = length(dates)
 
 ## 0, 1 mask
