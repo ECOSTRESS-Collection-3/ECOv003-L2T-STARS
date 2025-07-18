@@ -25,10 +25,11 @@ from harmonized_landsat_sentinel import (
 from ECOv003_exit_codes import *
 
 from ECOv002_granules import L2TLSTE
-import urllib
+import urllib.error
 
 from .version import __version__
 from .constants import *
+from .LPDAAC.LPDAACDataPool import LPDAACServerUnreachable
 from .VIIRS.VNP43IA4 import VNP43IA4
 from .VIIRS.VNP43MA3 import VNP43MA3
 from .VNP43NRT import VNP43NRT
