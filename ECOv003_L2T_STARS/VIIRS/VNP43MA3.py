@@ -35,8 +35,7 @@ class VNP43MA3Granule(VIIRSGranule):
             working_directory: str = None,
             products_directory: str = None,
             GEOS5FP_connection: GEOS5FP = None,
-            GEOS5FP_download: str = None,
-            GEOS5FP_products: str = None):
+            GEOS5FP_download: str = None):
         super(VNP43MA3Granule, self).__init__(
             filename=filename,
             working_directory=working_directory,
@@ -45,9 +44,7 @@ class VNP43MA3Granule(VIIRSGranule):
 
         if GEOS5FP_connection is None:
             GEOS5FP_connection = GEOS5FP(
-                working_directory=working_directory,
                 download_directory=GEOS5FP_download,
-                products_directory=GEOS5FP_products
             )
 
         self.GEOS5FP = GEOS5FP_connection

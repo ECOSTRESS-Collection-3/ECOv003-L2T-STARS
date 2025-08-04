@@ -287,7 +287,6 @@ class VNP43NRT(VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI):
             VNP43NRT_staging_directory: str = None,
             GEOS5FP_connection: GEOS5FP = None,
             GEOS5FP_download: str = None,
-            GEOS5FP_products: str = None,
             initialize_julia: bool = False):
         if working_directory is None:
             working_directory = VNP09GA.DEFAULT_WORKING_DIRECTORY
@@ -316,9 +315,7 @@ class VNP43NRT(VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI):
 
         if GEOS5FP_connection is None:
             GEOS5FP_connection = GEOS5FP(
-                working_directory=working_directory,
                 download_directory=GEOS5FP_download,
-                # products_directory=GEOS5FP_products
             )
 
         self.VNP09GA_directory = VNP09GA_directory
