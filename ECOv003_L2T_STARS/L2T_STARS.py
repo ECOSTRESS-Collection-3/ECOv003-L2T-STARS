@@ -363,7 +363,7 @@ def L2T_STARS(
         if len(missing_sentinel_dates) > 0:
             raise AuxiliaryLatency(
                 f"HLS Sentinel is not yet available at tile {tile} for dates: "
-                f"{', '.join(missing_sentinel_dates.dt.strftime('%Y-%m-%d'))}"
+                f"{', '.join(missing_sentinel_dates)}"
             )
 
         # Log available HLS Sentinel data
@@ -380,7 +380,7 @@ def L2T_STARS(
         if len(missing_landsat_dates) > 0:
             raise AuxiliaryLatency(
                 f"HLS Landsat is not yet available at tile {tile} for dates: "
-                f"{', '.join(missing_landsat_dates.dt.strftime('%Y-%m-%d'))}"
+                f"{', '.join(missing_landsat_dates)}"
             )
 
         # Log available HLS Landsat data
