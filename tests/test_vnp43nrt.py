@@ -28,7 +28,7 @@ from ECOv003_L2T_STARS.VNP43NRT.VNP43NRT import process_julia_BRDF
 class TestProcessJuliaBRDF:
     """Tests for the process_julia_BRDF function."""
     
-    @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.subprocess.run')
+    @patch('subprocess.run')
     @patch.dict('os.environ', {
         'GDAL_DATA': '/some/gdal/path',
         'GDAL_DRIVER_PATH': '/some/driver/path',
@@ -65,7 +65,7 @@ class TestProcessJuliaBRDF:
         # Verify other vars remain in subprocess environment
         assert call_env['TEST_VAR'] == 'test_value'
     
-    @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.subprocess.run')
+    @patch('subprocess.run')
     @patch.dict('os.environ', {'SOME_VAR': 'value'}, clear=True)
     def test_no_error_when_gdal_vars_absent(self, mock_subprocess):
         """Test that no KeyError is raised when GDAL vars don't exist."""
@@ -89,7 +89,7 @@ class TestProcessJuliaBRDF:
         # Verify subprocess was called successfully
         assert mock_subprocess.called
     
-    @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.subprocess.run')
+    @patch('subprocess.run')
     @patch.dict('os.environ', {}, clear=True)
     def test_subprocess_called_with_check_false(self, mock_subprocess):
         """Test that subprocess.run is called with check=False."""
@@ -113,7 +113,7 @@ class TestProcessJuliaBRDF:
         assert mock_subprocess.called
         assert mock_subprocess.call_args[1].get('check') == False
     
-    @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.subprocess.run')
+    @patch('subprocess.run')
     @patch.dict('os.environ', {}, clear=True)
     def test_command_contains_required_paths(self, mock_subprocess):
         """Test that the Julia command contains all required directory paths."""
