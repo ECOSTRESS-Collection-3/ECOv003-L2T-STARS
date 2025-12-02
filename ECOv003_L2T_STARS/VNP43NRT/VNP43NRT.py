@@ -108,7 +108,8 @@ def process_julia_BRDF(
         relative_azimuth_directory: str,
         SZA_filename: str,
         output_directory: str,
-        initialize_julia: bool):
+        initialize_julia: bool,
+        threads: Union[int, str] = "auto"):
     parent_directory = abspath(join(dirname(__file__), ".."))
     julia_source_directory = join(parent_directory, "VNP43NRT_jl")
     julia_script_filename = join(abspath(dirname(__file__)), "process_VNP43NRT.jl")
@@ -118,9 +119,10 @@ def process_julia_BRDF(
 
     # Set up the environment for the julia script
     julia_env = os.environ.copy()
+    julia_env["JULIA_NUM_THREADS"] = str(threads)
     # Ensure that julia uses its own bundled GDAL instead of conda's GDAL
-    julia_env.pop("GDAL_DATA")
-    julia_env.pop("GDAL_DRIVER_PATH")
+    julia_env.pop("GDAL_DATA", None)
+    julia_env.pop("GDAL_DRIVER_PATH", None)
 
     command = [
         "julia", julia_script_filename,
@@ -137,7 +139,7 @@ def process_julia_BRDF(
     ]
 
     logger.info(" ".join(command))
-    subprocess.run(command, env=julia_env)
+    subprocess.run(command, check=False, env=julia_env)
 
 class BRDFRetrievalFailed(RuntimeError):
     pass
