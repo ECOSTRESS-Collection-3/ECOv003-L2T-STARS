@@ -155,8 +155,9 @@ def generate_STARS_inputs(
                         logger.info(
                             f"saving fine image for STARS NDVI at {cl.place(tile)} on {cl.time(processing_date)}: {NDVI_fine_filename}")
                         NDVI_fine_image.to_geotiff(NDVI_fine_filename)
-                except Exception:  # Catch any exception during HLS fine image generation
-                    logger.info(f"HLS NDVI is not available on {processing_date}")
+                except Exception as e:
+                    logger.warning(f"HLS NDVI is not available on {processing_date}: {e}")
+                    logger.debug(f"Exception details: ", exc_info=True)
         except Exception as e:
             logger.exception(e)
             logger.warning(
@@ -205,8 +206,9 @@ def generate_STARS_inputs(
                         logger.info(
                             f"saving fine image for STARS albedo at {cl.place(tile)} on {cl.time(processing_date)}: {albedo_fine_filename}")
                         albedo_fine_image.to_geotiff(albedo_fine_filename)
-                except Exception:  # Catch any exception during HLS fine image generation
-                    logger.info(f"HLS albedo is not available on {processing_date}")
+                except Exception as e:
+                    logger.warning(f"HLS albedo is not available on {processing_date}: {e}")
+                    logger.debug(f"Exception details: ", exc_info=True)
         except Exception as e:
             logger.exception(e)
             logger.warning(

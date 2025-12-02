@@ -1,7 +1,7 @@
 from typing import Union
 from datetime import datetime, timezone
 from os import makedirs
-from os.path import join, abspath, exists, expanduser, dirname
+from os.path import join, abspath, exists, expanduser, dirname, basename
 from glob import glob
 import logging
 from shutil import which
@@ -10,6 +10,8 @@ import socket
 
 import colored_logging as cl
 from pytictoc import TicToc  # Import pytictoc
+
+from ECOv002_granules import L2TLSTE as ECOv002L2TLSTE
 
 from ECOv003_granules import L2TLSTE
 from ECOv003_granules import L2TSTARS
@@ -84,18 +86,27 @@ def generate_L2T_STARS_runconfig(
     timer = TicToc()  # Initialize pytictoc timer
     timer.tic()  # Start the timer
 
-    # Load the L2T_LSTE granule to extract necessary metadata if not provided
-    l2t_lste_granule = L2TLSTE(L2T_LSTE_filename)
+    # Determine collection from the L2T LSTE filename
+    collection = basename(L2T_LSTE_filename).split("_")[0]
+    
+    if collection == "ECOv003":
+        # Load the collection 3 L2T LSTE granule to extract necessary metadata if not provided
+        L2T_LSTE_granule = L2TLSTE(L2T_LSTE_filename)
+    elif collection == "ECOv002":
+        # Load the collection 2 L2T LSTE granule to extract necessary metadata if not provided
+        L2T_LSTE_granule = ECOv002L2TLSTE(L2T_LSTE_filename)
+    else:
+        raise ValueError(f"Unsupported collection in filename: {L2T_LSTE_filename}")
 
     # Use values from L2T_LSTE granule if not explicitly provided
     if orbit is None:
-        orbit = l2t_lste_granule.orbit
+        orbit = L2T_LSTE_granule.orbit
     if scene is None:
-        scene = l2t_lste_granule.scene
+        scene = L2T_LSTE_granule.scene
     if tile is None:
-        tile = l2t_lste_granule.tile
+        tile = L2T_LSTE_granule.tile
     if time_UTC is None:
-        time_UTC = l2t_lste_granule.time_UTC
+        time_UTC = L2T_LSTE_granule.time_UTC
 
     # Set default values for other parameters if not provided
     if build is None:

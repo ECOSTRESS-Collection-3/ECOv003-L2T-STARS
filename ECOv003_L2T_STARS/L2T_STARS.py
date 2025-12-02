@@ -3,7 +3,7 @@ import logging
 import sys
 from datetime import date, timedelta
 from os import makedirs
-from os.path import join, exists
+from os.path import join, exists, basename
 from typing import Union
 import logging
 import colored_logging as cl
@@ -28,6 +28,7 @@ from .LPDAAC.LPDAACDataPool import LPDAACServerUnreachable
 
 from ECOv003_exit_codes import *
 
+from ECOv002_granules import L2TLSTE as ECOv002L2TLSTE
 from ECOv003_granules import L2TLSTE
 import urllib
 
@@ -173,9 +174,22 @@ def L2T_STARS(
             )
 
         # Load the L2T_LSTE granule to get geometry and base metadata
-        l2t_granule = L2TLSTE(L2T_LSTE_filename)
-        geometry = l2t_granule.geometry
-        metadata = l2t_granule.metadata_dict
+        # L2T_LSTE_granule = L2TLSTE(L2T_LSTE_filename)
+        
+        # Determine collection from the L2T LSTE filename
+        collection = basename(L2T_LSTE_filename).split("_")[0]
+        
+        if collection == "ECOv003":
+            # Load the collection 3 L2T LSTE granule to extract necessary metadata if not provided
+            L2T_LSTE_granule = L2TLSTE(L2T_LSTE_filename)
+        elif collection == "ECOv002":
+            # Load the collection 2 L2T LSTE granule to extract necessary metadata if not provided
+            L2T_LSTE_granule = ECOv002L2TLSTE(L2T_LSTE_filename)
+        else:
+            raise ValueError(f"Unsupported collection in filename: {L2T_LSTE_filename}")
+        
+        geometry = L2T_LSTE_granule.geometry
+        metadata = L2T_LSTE_granule.metadata_dict
         metadata["StandardMetadata"]["PGEName"] = "L2T_STARS"
 
         # Update product names in metadata
@@ -194,12 +208,12 @@ def L2T_STARS(
             metadata["ProductMetadata"].pop("NWPSource", None)
 
         # Determine the target date for processing
-        time_UTC = l2t_granule.time_UTC
+        time_UTC = L2T_LSTE_granule.time_UTC
         logger.info(f"ECOSTRESS overpass time: {cl.time(f'{time_UTC:%Y-%m-%d %H:%M:%S} UTC')}")
 
         if date_UTC is None:
             # Use date from L2T granule if not provided via command line
-            date_UTC = l2t_granule.date_UTC
+            date_UTC = L2T_LSTE_granule.date_UTC
             logger.info(f"ECOSTRESS overpass date: {cl.time(f'{date_UTC:%Y-%m-%d} UTC')}")
         else:
             logger.warning(f"Over-riding target date from command line to: {date_UTC}")

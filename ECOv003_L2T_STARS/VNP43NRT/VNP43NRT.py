@@ -61,10 +61,10 @@ def install_VNP43NRT_jl(
     result = subprocess.run(julia_command, capture_output=True, text=True)
 
     if result.returncode == 0:
-        print(f"VNP43NRT.jl installed successfully in environment '{environment_name}'!")
+        logger.info(f"VNP43NRT.jl installed successfully in environment '{environment_name}'!")
     else:
-        print("Error installing VNP43NRT.jl:")
-        print(result.stderr)
+        logger.error("Error installing VNP43NRT.jl:")
+        logger.error(result.stderr)
 
     return result
 
@@ -88,10 +88,10 @@ def instantiate_VNP43NRT_jl(package_location: str):
     result = subprocess.run(julia_command, capture_output=True, text=True)
 
     if result.returncode == 0:
-        print(f"VNP43NRT.jl instantiated successfully in directory '{package_location}'!")
+        logger.info(f"VNP43NRT.jl instantiated successfully in directory '{package_location}'!")
     else:
-        print("Error instantiating VNP43NRT.jl:")
-        print(result.stderr)
+        logger.error("Error instantiating VNP43NRT.jl:")
+        logger.error(result.stderr)
 
     return result
 
@@ -108,7 +108,8 @@ def process_julia_BRDF(
         relative_azimuth_directory: str,
         SZA_filename: str,
         output_directory: str,
-        initialize_julia: bool):
+        initialize_julia: bool,
+        threads: Union[int, str] = "auto"):
     parent_directory = abspath(join(dirname(__file__), ".."))
     julia_source_directory = join(parent_directory, "VNP43NRT_jl")
     julia_script_filename = join(abspath(dirname(__file__)), "process_VNP43NRT.jl")
@@ -117,10 +118,15 @@ def process_julia_BRDF(
         instantiate_VNP43NRT_jl(julia_source_directory)
 
     # Set up the environment for the julia script
+    # IMPORTANT: Create a COPY of os.environ to avoid modifying system-level environment variables.
+    # This ensures that we only modify the environment for this subprocess call,
+    # preserving the system-level GDAL configuration for other parts of the application.
     julia_env = os.environ.copy()
+    julia_env["JULIA_NUM_THREADS"] = str(threads)
     # Ensure that julia uses its own bundled GDAL instead of conda's GDAL
-    julia_env.pop("GDAL_DATA")
-    julia_env.pop("GDAL_DRIVER_PATH")
+    # We remove these from the copy only - the system environment remains unchanged
+    julia_env.pop("GDAL_DATA", None)
+    julia_env.pop("GDAL_DRIVER_PATH", None)
 
     command = [
         "julia", julia_script_filename,
@@ -137,7 +143,7 @@ def process_julia_BRDF(
     ]
 
     logger.info(" ".join(command))
-    subprocess.run(command, env=julia_env)
+    subprocess.run(command, check=False, env=julia_env)
 
 class BRDFRetrievalFailed(RuntimeError):
     pass

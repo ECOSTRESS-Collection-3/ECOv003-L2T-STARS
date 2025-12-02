@@ -71,11 +71,10 @@ class LPDAACDataPool:
                 logger.warning("netrc credentials not found for urs.earthdata.nasa.gov")
 
         if username is None or password is None:
-            if not "LPDAAC_USERNAME" in os.environ or not "LPDAAC_PASSWORD" in os.environ:
+            username = os.environ.get("LPDAAC_USERNAME")
+            password = os.environ.get("LPDAAC_PASSWORD")
+            if username is None or password is None:
                 logger.warning("missing environment variable 'LPDAAC_USERNAME' or 'LPDAAC_PASSWORD'")
-            else:
-                username = os.environ["LPDAAC_USERNAME"]
-                password = os.environ["LPDAAC_PASSWORD"]
 
         self._remote = remote
         self._username = username
@@ -344,8 +343,8 @@ class LPDAACDataPool:
 
                 try:
                     os.remove(metadata_filename)
-                except:
-                    logger.warning(f"unable to remove zero-size metadata file: {metadata_filename}")
+                except (OSError, PermissionError) as e:
+                    logger.warning(f"unable to remove zero-size metadata file: {metadata_filename}: {e}")
 
                 logger.warning(f"waiting {XML_timeout_seconds} for retry")
                 sleep(XML_timeout_seconds)
