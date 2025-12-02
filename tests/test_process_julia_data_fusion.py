@@ -30,11 +30,11 @@ class TestProcessJuliaDataFusion:
     
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.os.environ', {
+    @patch.dict('os.environ', {
         'GDAL_DATA': '/some/gdal/path',
         'GDAL_DRIVER_PATH': '/some/driver/path',
         'TEST_VAR': 'test_value'
-    })
+    }, clear=True)
     def test_gdal_data_removed_when_present(self, mock_exists, mock_subprocess):
         """Test that GDAL_DATA and GDAL_DRIVER_PATH are removed when present."""
         mock_exists.return_value = False  # No prior files exist
@@ -71,7 +71,7 @@ class TestProcessJuliaDataFusion:
     
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.os.environ', {'SOME_VAR': 'value'})
+    @patch.dict('os.environ', {'SOME_VAR': 'value'}, clear=True)
     def test_no_error_when_gdal_vars_absent(self, mock_exists, mock_subprocess):
         """Test that no KeyError is raised when GDAL vars don't exist."""
         mock_exists.return_value = False  # No prior files exist
@@ -99,7 +99,7 @@ class TestProcessJuliaDataFusion:
     
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.os.environ', {})
+    @patch.dict('os.environ', {}, clear=True)
     def test_julia_num_threads_set(self, mock_exists, mock_subprocess):
         """Test that JULIA_NUM_THREADS is set correctly."""
         mock_exists.return_value = False
@@ -130,7 +130,7 @@ class TestProcessJuliaDataFusion:
     
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.os.environ', {})
+    @patch.dict('os.environ', {}, clear=True)
     def test_prior_files_passed_when_all_exist(self, mock_exists, mock_subprocess):
         """Test that prior filenames are included in command when all exist."""
         # Mock that all prior files exist
@@ -168,7 +168,7 @@ class TestProcessJuliaDataFusion:
     
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.os.environ', {})
+    @patch.dict('os.environ', {}, clear=True)
     def test_prior_files_not_passed_when_missing(self, mock_exists, mock_subprocess):
         """Test that prior filenames are not included when any don't exist."""
         # Mock that prior files don't exist

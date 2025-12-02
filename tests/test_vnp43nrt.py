@@ -29,11 +29,11 @@ class TestProcessJuliaBRDF:
     """Tests for the process_julia_BRDF function."""
     
     @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.subprocess.run')
-    @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.os.environ', {
+    @patch.dict('os.environ', {
         'GDAL_DATA': '/some/gdal/path',
         'GDAL_DRIVER_PATH': '/some/driver/path',
         'TEST_VAR': 'test_value'
-    })
+    }, clear=True)
     def test_gdal_data_removed_when_present(self, mock_subprocess):
         """Test that GDAL_DATA and GDAL_DRIVER_PATH are removed when present."""
         process_julia_BRDF(
@@ -66,7 +66,7 @@ class TestProcessJuliaBRDF:
         assert call_env['TEST_VAR'] == 'test_value'
     
     @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.subprocess.run')
-    @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.os.environ', {'SOME_VAR': 'value'})
+    @patch.dict('os.environ', {'SOME_VAR': 'value'}, clear=True)
     def test_no_error_when_gdal_vars_absent(self, mock_subprocess):
         """Test that no KeyError is raised when GDAL vars don't exist."""
         # Should not raise KeyError even if GDAL vars are absent from mocked environment
@@ -90,7 +90,7 @@ class TestProcessJuliaBRDF:
         assert mock_subprocess.called
     
     @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.subprocess.run')
-    @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.os.environ', {})
+    @patch.dict('os.environ', {}, clear=True)
     def test_subprocess_called_with_check_false(self, mock_subprocess):
         """Test that subprocess.run is called with check=False."""
         process_julia_BRDF(
@@ -114,7 +114,7 @@ class TestProcessJuliaBRDF:
         assert mock_subprocess.call_args[1].get('check') == False
     
     @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.subprocess.run')
-    @patch('ECOv003_L2T_STARS.VNP43NRT.VNP43NRT.os.environ', {})
+    @patch.dict('os.environ', {}, clear=True)
     def test_command_contains_required_paths(self, mock_subprocess):
         """Test that the Julia command contains all required directory paths."""
         process_julia_BRDF(
