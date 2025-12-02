@@ -61,10 +61,10 @@ def install_VNP43NRT_jl(
     result = subprocess.run(julia_command, capture_output=True, text=True)
 
     if result.returncode == 0:
-        print(f"VNP43NRT.jl installed successfully in environment '{environment_name}'!")
+        logger.info(f"VNP43NRT.jl installed successfully in environment '{environment_name}'!")
     else:
-        print("Error installing VNP43NRT.jl:")
-        print(result.stderr)
+        logger.error("Error installing VNP43NRT.jl:")
+        logger.error(result.stderr)
 
     return result
 
@@ -88,10 +88,10 @@ def instantiate_VNP43NRT_jl(package_location: str):
     result = subprocess.run(julia_command, capture_output=True, text=True)
 
     if result.returncode == 0:
-        print(f"VNP43NRT.jl instantiated successfully in directory '{package_location}'!")
+        logger.info(f"VNP43NRT.jl instantiated successfully in directory '{package_location}'!")
     else:
-        print("Error instantiating VNP43NRT.jl:")
-        print(result.stderr)
+        logger.error("Error instantiating VNP43NRT.jl:")
+        logger.error(result.stderr)
 
     return result
 
