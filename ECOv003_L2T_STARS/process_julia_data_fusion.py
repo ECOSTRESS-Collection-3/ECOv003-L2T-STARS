@@ -80,8 +80,8 @@ def process_julia_data_fusion(
     julia_env = os.environ.copy()
     julia_env["JULIA_NUM_THREADS"] = str(threads)
     # Ensure that julia uses its own bundled GDAL instead of conda's GDAL
-    julia_env.pop("GDAL_DATA")
-    julia_env.pop("GDAL_DRIVER_PATH")
+    julia_env.pop("GDAL_DATA", None)
+    julia_env.pop("GDAL_DRIVER_PATH", None)
 
     # Base Julia command with required arguments
     command = [
