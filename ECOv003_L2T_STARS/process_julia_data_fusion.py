@@ -77,9 +77,13 @@ def process_julia_data_fusion(
         instantiate_STARSDataFusion_jl(STARS_source_directory)
 
     # Set up the environment for the julia script
+    # IMPORTANT: Create a COPY of os.environ to avoid modifying system-level environment variables.
+    # This ensures that we only modify the environment for this subprocess call,
+    # preserving the system-level GDAL configuration for other parts of the application.
     julia_env = os.environ.copy()
     julia_env["JULIA_NUM_THREADS"] = str(threads)
     # Ensure that julia uses its own bundled GDAL instead of conda's GDAL
+    # We remove these from the copy only - the system environment remains unchanged
     julia_env.pop("GDAL_DATA", None)
     julia_env.pop("GDAL_DRIVER_PATH", None)
 
