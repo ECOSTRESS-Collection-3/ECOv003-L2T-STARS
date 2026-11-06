@@ -195,6 +195,8 @@ pip cannot install Julia packages. After `pip install`, run this once to install
 ECOv003-L2T-STARS-install-julia
 ```
 
+To re-check an existing install (for example inside the Docker container) without installing anything, run `ECOv003-L2T-STARS-install-julia --verify-only`; it exits non-zero if the Julia version or any import is wrong.
+
 This requires Julia 1.11 (the version the manifests were resolved with). The Dockerfile runs this step during the image build, and all Julia calls in this package run with `--project` pointing at that single pinned environment (data fusion and VNP43NRT share it).
 
 ## Usage

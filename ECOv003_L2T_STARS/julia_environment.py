@@ -9,6 +9,7 @@ pip cannot install Julia packages, so run ``ECOv003-L2T-STARS-install-julia`` on
 ``pip install`` (the Dockerfile does this). Every Julia call in this package runs with
 ``--project=<dir>`` so it always uses these pinned environments.
 """
+import argparse
 import logging
 import re
 import subprocess
@@ -86,10 +87,20 @@ def verify_julia_environments() -> None:
         _run(["julia", f"--project={project}", SMOKE_TEST, *scripts])
 
 
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Install and verify the pinned Julia environment")
+    parser.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="only check the Julia version and that every import loads; do not install anything",
+    )
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
-        instantiate_julia_environments()
+        if args.verify_only:
+            check_julia_version()
+        else:
+            instantiate_julia_environments()
         verify_julia_environments()
     except JuliaEnvironmentError as e:
         logger.error(e)
