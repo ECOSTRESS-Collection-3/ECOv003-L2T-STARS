@@ -11,7 +11,9 @@ pip cannot install Julia packages, so run ``ECOv003-L2T-STARS-install-julia`` on
 """
 import argparse
 import logging
+import os
 import re
+import shutil
 import subprocess
 import sys
 from os.path import abspath, dirname, join
@@ -56,6 +58,34 @@ def _manifest_julia_version(project: str) -> Optional[str]:
     except OSError:
         return None
     return match.group(1) if match else None
+
+
+def find_compatible_julia(project: str, env: dict) -> str:
+    """Find a Julia executable on PATH matching the project's manifest."""
+    expected = _manifest_julia_version(project)
+    if expected is None:
+        raise FileNotFoundError(f"cannot determine Julia version from {project}/Manifest.toml")
+
+    candidates = []
+    seen = set()
+    for directory in env.get("PATH", os.defpath).split(os.pathsep):
+        executable = shutil.which("julia", path=directory or os.curdir)
+        if executable is None or executable in seen:
+            continue
+        seen.add(executable)
+        result = subprocess.run(
+            [executable, "--version"], env=env, capture_output=True, text=True, check=False
+        )
+        match = re.search(r"\bjulia version (\d+\.\d+)\.\d+", result.stdout)
+        if result.returncode == 0 and match and match.group(1) == expected:
+            return executable
+        candidates.append(f"{executable} ({result.stdout.strip() or result.stderr.strip()})")
+
+    found = ", ".join(candidates) if candidates else "none"
+    raise FileNotFoundError(
+        f"Julia {expected}.x is required by {project}/Manifest.toml; "
+        f"no compatible executable found on PATH (checked: {found})"
+    )
 
 
 def check_julia_version() -> None:

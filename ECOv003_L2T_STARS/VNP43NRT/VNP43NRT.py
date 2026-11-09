@@ -26,6 +26,7 @@ from ..BRDF.SZA import calculate_SZA
 from ..VIIRS import VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI
 from ..VIIRS.VNP09GA import VNP09GA, VNP09GAGranule, ALBEDO_COLORMAP, NDVI_COLORMAP, VIIRSUnavailableError
 from ..daterange import date_range
+from ..julia_environment import find_compatible_julia
 from ..timer import Timer
 
 DEFAULT_WEIGHTED = True
@@ -35,6 +36,16 @@ with open(join(abspath(dirname(__file__)), "version.txt")) as f:
     version = f.read()
 
 logger = logging.getLogger(__name__)
+
+
+def _julia_environment():
+    env = os.environ.copy()
+    env.pop("GDAL_DATA", None)
+    env.pop("GDAL_DRIVER_PATH", None)
+    if sys.platform == "darwin":
+        env.pop("DYLD_LIBRARY_PATH", None)
+    return env
+
 
 def install_VNP43NRT_jl(
     package_location: str = "https://github.com/STARS-Data-Fusion/VNP43NRT.jl",
@@ -58,7 +69,7 @@ def install_VNP43NRT_jl(
         f'using Pkg; Pkg.activate("{environment_name}"); Pkg.develop(url="{package_location}")'
     ]
 
-    result = subprocess.run(julia_command, capture_output=True, text=True)
+    result = subprocess.run(julia_command, capture_output=True, text=True, env=_julia_environment())
 
     if result.returncode == 0:
         logger.info(f"VNP43NRT.jl installed successfully in environment '{environment_name}'!")
@@ -79,13 +90,14 @@ def instantiate_VNP43NRT_jl(package_location: str):
         A CompletedProcess object containing information about the execution of the Julia command.
     """
 
+    julia_env = _julia_environment()
     julia_command = [
-        "julia",
+        find_compatible_julia(package_location, julia_env),
         "-e",
         f'using Pkg; Pkg.activate("{package_location}"); Pkg.instantiate()'
     ]
 
-    result = subprocess.run(julia_command, capture_output=True, text=True)
+    result = subprocess.run(julia_command, capture_output=True, text=True, env=julia_env)
 
     if result.returncode == 0:
         logger.info(f"VNP43NRT.jl instantiated successfully in directory '{package_location}'!")
@@ -115,21 +127,14 @@ def process_julia_BRDF(
     julia_script_filename = join(abspath(dirname(__file__)), "process_VNP43NRT.jl")
 
     if initialize_julia:
-        instantiate_VNP43NRT_jl(julia_source_directory)
+        instantiate_VNP43NRT_jl(julia_source_directory).check_returncode()
 
-    # Set up the environment for the julia script
-    # IMPORTANT: Create a COPY of os.environ to avoid modifying system-level environment variables.
-    # This ensures that we only modify the environment for this subprocess call,
-    # preserving the system-level GDAL configuration for other parts of the application.
-    julia_env = os.environ.copy()
+    julia_env = _julia_environment()
     julia_env["JULIA_NUM_THREADS"] = str(threads)
-    # Ensure that julia uses its own bundled GDAL instead of conda's GDAL
-    # We remove these from the copy only - the system environment remains unchanged
-    julia_env.pop("GDAL_DATA", None)
-    julia_env.pop("GDAL_DRIVER_PATH", None)
 
     command = [
-        "julia", f"--project={julia_source_directory}", julia_script_filename,
+        find_compatible_julia(julia_source_directory, julia_env),
+        f"--project={julia_source_directory}", julia_script_filename,
         band,
         f"{h}", f"{v}",
         f"{tile_width_cells}",
@@ -143,7 +148,7 @@ def process_julia_BRDF(
     ]
 
     logger.info(" ".join(command))
-    subprocess.run(command, check=False, env=julia_env)
+    subprocess.run(command, check=True, env=julia_env)
 
 class BRDFRetrievalFailed(RuntimeError):
     pass

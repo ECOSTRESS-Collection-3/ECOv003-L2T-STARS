@@ -126,44 +126,44 @@ date_stamp = Dates.format(end_date, date_format)
 WSA = Raster(reshape(results[:,1], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 WSA_filename = joinpath(output_directory, "$(date_stamp)_WSA.tif")
 @info "writing WSA: $(WSA_filename)"
-write(WSA_filename, WSA; force=true)
+write(WSA_filename, WSA; force=true, driver="GTiff")
 
 BSA = Raster(reshape(results[:,2], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 BSA_filename = joinpath(output_directory, "$(date_stamp)_BSA.tif")
 @info "writing BSA: $(BSA_filename)"
-write(BSA_filename, BSA; force=true)
+write(BSA_filename, BSA; force=true, driver="GTiff")
 
 NBAR = Raster(reshape(results[:,3], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 NBAR_filename = joinpath(output_directory, "$(date_stamp)_NBAR.tif")
 @info "writing NBAR: $(NBAR_filename)"
-write(NBAR_filename, NBAR; force=true)
+write(NBAR_filename, NBAR; force=true, driver="GTiff")
 
 WSA_SE = Raster(reshape(results[:,4], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 WSA_SE_filename = joinpath(output_directory, "$(date_stamp)_WSA_SE.tif")
 @info "writing WSA_SE: $(WSA_SE_filename)"
-write(WSA_SE_filename, WSA_SE; force=true)
+write(WSA_SE_filename, WSA_SE; force=true, driver="GTiff")
 
 BSA_SE = Raster(reshape(results[:,5], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 BSA_SE_filename = joinpath(output_directory, "$(date_stamp)_BSA_SE.tif")
 @info "writing BSA_SE: $(BSA_SE_filename)"
-write(BSA_SE_filename, BSA_SE; force=true)
+write(BSA_SE_filename, BSA_SE; force=true, driver="GTiff")
 
 NBAR_SE = Raster(reshape(results[:,6], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 NBAR_SE_filename = joinpath(output_directory, "$(date_stamp)_NBAR_SE.tif")
 @info "writing NBAR_SE: $(NBAR_SE_filename)"
-write(NBAR_SE_filename, NBAR_SE; force=true)
+write(NBAR_SE_filename, NBAR_SE; force=true, driver="GTiff")
 
 BRDF_SE = Raster(reshape(results[:,7], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 BRDF_SE_filename = joinpath(output_directory, "$(date_stamp)_BRDF_SE.tif")
 @info "writing BRDF_SE: $(BRDF_SE_filename)"
-write(BRDF_SE_filename, BRDF_SE; force=true)
+write(BRDF_SE_filename, BRDF_SE; force=true, driver="GTiff")
 
 BRDF_R2 = Raster(reshape(results[:,8], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 BRDF_R2_filename = joinpath(output_directory, "$(date_stamp)_BRDF_R2.tif")
 @info "writing BRDF_R2: $(BRDF_R2_filename)"
-write(BRDF_R2_filename, BRDF_R2; force=true)
+write(BRDF_R2_filename, BRDF_R2; force=true, driver="GTiff")
 
 count = Raster(reshape(results[:,9], (tile_width_cells, tile_width_cells)), dims=(x_dim, y_dim), missingval=NaN)
 count_filename = joinpath(output_directory, "$(date_stamp)_count.tif")
 @info "writing count: $(count_filename)"
-write(count_filename, count; force=true)
+write(count_filename, count; force=true, driver="GTiff")

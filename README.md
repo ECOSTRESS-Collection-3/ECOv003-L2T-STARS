@@ -207,6 +207,24 @@ Import this package with the name `ECOv003_L2T_STARS` with underscores:
 import ECOv003_L2T_STARS
 ```
 
+### VNP43NRT example
+
+To generate a VNP43NRT granule for a date and MODLAND tile, edit the settings
+in [example_VNP43NRT.py](example_VNP43NRT.py) and run:
+
+```
+python example_VNP43NRT.py
+```
+
+The example requires the Julia setup described above, Earthdata credentials for
+VNP09GA downloads, and access to GEOS5-FP data. Processing uses VNP09GA
+observations from the target date and the preceding 16 days.
+
+On macOS, the VNP43NRT Julia subprocess ignores `DYLD_LIBRARY_PATH` to avoid
+loading incompatible libraries from the Python environment. The parent
+environment remains unchanged. VNP43NRT selects the first Julia executable on
+`PATH` matching the version in the project manifest (currently Julia 1.11).
+
 ### Command Line Usage
 
 #### Command-Line Entry-Point for the `ECOv003-L2T-STARS` Product Generating Executable
