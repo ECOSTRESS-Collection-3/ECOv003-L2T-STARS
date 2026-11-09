@@ -139,8 +139,8 @@ For practical information on data access, file formats, processing workflows, an
 
 | Parameter | Description | Units | Range | Source Instruments |
 |-----------|-------------|-------|-------|-------------------|
-| NDVI | Normalized Difference Vegetation Index | Dimensionless | -1.0 to 1.0 | HLS 2.0, VIIRS VNP09GA |
-| Albedo (α) | Broadband shortwave albedo | Dimensionless | 0.0 to 1.0 | HLS 2.0, VIIRS VNP09GA |
+| NDVI | Normalized Difference Vegetation Index | Dimensionless | -1.0 to 1.0 | HLS 2.0, VIIRS VNP09GA/VJ109GA/VJ209GA |
+| Albedo (α) | Broadband shortwave albedo | Dimensionless | 0.0 to 1.0 | HLS 2.0, VIIRS VNP09GA/VJ109GA/VJ209GA |
 
 ### Auxiliary Data Requirements
 
@@ -148,7 +148,7 @@ The STARS algorithm requires high-quality surface reflectance data from multiple
 
 **Primary Data Sources:**
 - **Harmonized Landsat Sentinel (HLS) 2.0**: 30 m spatial resolution, 3-5 day revisit
-- **VIIRS VNP09GA**: 500 m spatial resolution for NDVI, 1 km for albedo, daily coverage
+- **VIIRS daily surface reflectance**: SNPP VNP09GA, JPSS-1 VJ109GA, or JPSS-2 VJ209GA; 500 m spatial resolution for NDVI, 1 km for albedo, daily coverage
 
 **Ancillary Data:**
 - **GEOS-5 FP tavg3_2d_aer_Nx**: Aerosol optical depth for BRDF correction
@@ -167,11 +167,11 @@ The STARS algorithm utilizes complementary satellite data sources that provide d
 | Resolution Category | NDVI Source | Albedo Source | Characteristics |
 |---------------------|-------------|---------------|-----------------|
 | **High Spatial (<100 m)** | HLS 2.0 (30 m) | HLS 2.0 (30 m) | 3-5 day revisit, high spatial detail |
-| **High Temporal (daily)** | VIIRS VNP09GA (500 m) | VIIRS VNP09GA (1 km) | Daily coverage, moderate resolution |
+| **High Temporal (daily)** | VIIRS (VNP09GA/VJ109GA/VJ209GA, 500 m) | VIIRS (VNP09GA/VJ109GA/VJ209GA, 1 km) | SNPP preferred; JPSS fallback by date |
 
 ### BRDF Correction
 
-Prior to data fusion, a pixelwise, lagged 16-day implementation of the VNP43 algorithm (Schaaf, 2017) is used for near-real-time bi-directional reflectance function (BRDF) correction on the VNP09GA reflectance products. This produces VIIRS nadir BRDF-adjusted red and near-infrared reflectance at 500 m resolution for NDVI calculation, and 1 km estimates of black-sky albedo ($a_{black}$) and white-sky albedo ($a_{white}$) for VIIRS M-bands 1, 2, 3, 4, 5, 7, 8, 10, and 11.
+Prior to data fusion, VCD43NRT applies the near-real-time BRDF workflow to daily VIIRS observations from the selected mission. This produces VIIRS nadir BRDF-adjusted red and near-infrared reflectance at 500 m resolution for NDVI calculation, and 1 km estimates of black-sky albedo ($a_{black}$) and white-sky albedo ($a_{white}$) for VIIRS M-bands 1, 2, 3, 4, 5, 7, 8, 10, and 11.
 
 Blue-sky albedo ($a_{blue}$) for each band is calculated as:
 
@@ -308,7 +308,7 @@ The latency of this operation depends on the availability of input products. The
 The STARS algorithm incorporates quality assessment at the input processing stage and provides uncertainty quantification in the final products:
 
 **Input Data Quality Processing:**
-- **VIIRS quality assessment**: VNP09GA and VNP43 products include quality flags that are used during BRDF processing
+- **VIIRS quality assessment**: Daily VIIRS surface-reflectance products include quality flags used during BRDF processing
 - **Cloud masking**: Applied during VIIRS data processing to exclude contaminated observations
 - **BRDF model quality**: Assessment of BRDF model fit quality affects the reliability of VIIRS inputs
 

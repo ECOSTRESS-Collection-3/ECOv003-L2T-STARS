@@ -30,9 +30,9 @@ This software will produce estimates of:
 - Normalized Difference Vegetation Index (NDVI)
 - albedo
 
-NDVI and albedo are estimated at 70 m ECOSTRESS standard resolution for each daytime ECOSTRESS overpass by fusing temporally sparse but fine spatial resolution images from the Harmonized Landsat Sentinel (HLS) 2.0 product with daily, moderate spatial resolution images from the Suomi NPP Visible Infrared Imaging Radiometer Suite (VIIRS) VNP09GA product. The data fusion is performed using a variant of the Spatial Timeseries for Automated high-Resolution multi-Sensor data fusion (STARS) algorithm developed by Dr. Margaret Johnson and Gregory Halverson at the Jet Propulsion Laboratory. STARS is a Bayesian timeseries methodology that provides streaming data fusion and uncertainty quantification through efficient Kalman filtering.
+NDVI and albedo are estimated at 70 m ECOSTRESS standard resolution for each daytime ECOSTRESS overpass by fusing temporally sparse but fine spatial resolution images from the Harmonized Landsat Sentinel (HLS) 2.0 product with daily, moderate spatial resolution images from VIIRS. The VCD43NRT package uses Suomi NPP first, with JPSS-1 and JPSS-2 available as mission fallbacks, to provide those VIIRS inputs. The data fusion is performed using a variant of the Spatial Timeseries for Automated high-Resolution multi-Sensor data fusion (STARS) algorithm developed by Dr. Margaret Johnson and Gregory Halverson at the Jet Propulsion Laboratory. STARS is a Bayesian timeseries methodology that provides streaming data fusion and uncertainty quantification through efficient Kalman filtering.
 
-Operationally, each L2T STARS tile run loads the means and covariances of the STARS model saved from the most recent tile run, then iteratively advances the means and covariances forward each day updating with fine imagery from HLS and/or moderate resolution imagery from VIIRS up to the day of the target SBG overpass. A pixelwise, lagged 16-day implementation of the VNP43 algorithm (Schaaf, 2017) is used for a near-real-time BRDF correction on the VNP09GA products to produce VIIRS NDVI and albedo.
+Operationally, each L2T STARS tile run loads the means and covariances of the STARS model saved from the most recent tile run, then iteratively advances the means and covariances forward each day updating with fine imagery from HLS and/or moderate resolution imagery from VIIRS up to the day of the target ECOSTRESS overpass. VCD43NRT applies the near-real-time BRDF workflow to daily VIIRS observations to produce the coarse NDVI and albedo inputs.
 
 ## 1. Introduction to Data Products
 
@@ -42,12 +42,12 @@ The data format for the ECOSTRESS products is described in the [ECOSTRESS Collec
 
 ```mermaid
 flowchart TB
-    subgraph VNP43NRT[VNP43NRT.jl]
-        VNP09GA_I[VNP09GA<br>I-Band<br>500m<br>Surface<br>Reflectance]
-        VNP09GA_M[VNP09GA<br>M-Band<br>1000m<br>Surface<br>Reflectance]
+    subgraph VCD43NRT[VCD43NRT Python/Rust]
+        VIIRS_I[VIIRS<br>I-Band<br>Surface<br>Reflectance]
+        VIIRS_M[VIIRS<br>M-Band<br>Surface<br>Reflectance]
         VIIRS_downscaling[VIIRS<br>Downscaling]
-        VNP09GA_downscaled[Downscaled<br>500m<br>VIIRS<br>Surface<br>Reflectance]
-        VNP43_BRDF[VNP43NRT.jl<br>BRDF<br>Correction]
+        VIIRS_downscaled[Downscaled<br>500m<br>VIIRS<br>Surface<br>Reflectance]
+        VIIRS_BRDF[VCD43NRT<br>BRDF<br>Correction]
         VIIRS_corrected[VIIRS<br>BRDF-Corrected<br>500m<br>Surface<br>Reflectance]
         VIIRS_NDVI[VIIRS<br>500m<br>NDVI]
         VIIRS_albedo[VIIRS<br>500m<br>Albedo]
@@ -84,11 +84,11 @@ flowchart TB
 
     SBG_L2T_STARS(ECOSTRESS<br>L2T<br>STARS<br>NDVI<br>&<br>Albedo<br>Product)
 
-    VNP09GA_I --> VIIRS_downscaling
-    VNP09GA_M --> VIIRS_downscaling
-    VIIRS_downscaling --> VNP09GA_downscaled
-    VNP09GA_downscaled --> VNP43_BRDF
-    VNP43_BRDF --> VIIRS_corrected
+    VIIRS_I --> VIIRS_downscaling
+    VIIRS_M --> VIIRS_downscaling
+    VIIRS_downscaling --> VIIRS_downscaled
+    VIIRS_downscaled --> VIIRS_BRDF
+    VIIRS_BRDF --> VIIRS_corrected
     VIIRS_corrected --> VIIRS_NDVI
     VIIRS_corrected --> VIIRS_albedo
 
@@ -124,18 +124,18 @@ flowchart TB
     fine_albedo_output --> SBG_L2T_STARS
     fine_albedo_uncertainty --> SBG_L2T_STARS
 
-    click VNP43_BRDF "https://github.com/STARS-Data-Fusion/VNP43NRT.jl"
+    click VIIRS_BRDF "https://github.com/JPL-Evapotranspiration-Algorithms/VCD43NRT"
     click NDVI_data_fusion "https://github.com/STARS-Data-Fusion/STARS.jl"
     click albedo_data_fusion "https://github.com/STARS-Data-Fusion/STARS.jl"
 ```
 
 *Figure 1. Flowchart of the ECOSTRESS Collection 3 L2T STARS processing workflow.*
 
-NDVI and albedo are estimated at 70 m ECOSTRESS standard resolution with uncertainty for each UTC day in which there is an ECOSTRESS overpass by fusing temporally sparse but fine spatial resolution images from the Harmonized Landsat Sentinel (HLS) 2.0 product with daily, moderate spatial resolution images from the Suomi NPP Visible Infrared Imaging Radiometer Suite (VIIRS) VNP09GA product.
+NDVI and albedo are estimated at 70 m ECOSTRESS standard resolution with uncertainty for each UTC day in which there is an ECOSTRESS overpass by fusing temporally sparse but fine spatial resolution images from the Harmonized Landsat Sentinel (HLS) 2.0 product with daily, moderate spatial resolution VIIRS observations. Suomi NPP is preferred; JPSS-1 and JPSS-2 can fill dates without a preferred-mission observation.
 
 Landsat and Sentinel surface reflectances are collected using the [HLS.jl](https://github.com/STARS-Data-Fusion/HLS.jl) package.
 
-VIIRS surface reflectance is downscaled and BRDF corrected using the [VNP43NRT.jl](https://github.com/STARS-Data-Fusion/VNP43NRT.jl) package. A pixelwise, lagged 16-day implementation of the VNP43 algorithm (Schaaf, 2017) is used for a near-real-time BRDF correction on the VNP09GA products to produce VIIRS NDVI and albedo.
+VIIRS surface reflectance is processed by the [VCD43NRT](https://github.com/JPL-Evapotranspiration-Algorithms/VCD43NRT) package. It selects observations per date using the configured mission priority (SNPP, JPSS-1, JPSS-2 by default), then applies the near-real-time BRDF workflow to produce VIIRS NDVI and albedo. HLS retrieval, STARS time windows, fusion, and ECOSTRESS output generation are unchanged.
 
 The data fusion is performed with a variant of the Spatial Timeseries for Automated high-Resolution multi-Sensor data fusion (STARS) algorithm developed by Dr. Margaret Johnson and Gregory H. Halverson at the Jet Propulsion Laboratory using the [STARS.jl](https://github.com/STARS-Data-Fusion/STARS.jl) package. STARS is a Bayesian timeseries methodology that provides streaming data fusion and uncertainty quantification through efficient Kalman filtering. Operationally, each L2T STARS tile run loads the means and covariances of the STARS model saved from the most recent tile run, then iteratively advances the means and covariances forward each day updating with fine imagery from HLS and/or moderate resolution imagery from VIIRS up to the day of the target ECOSTRESS overpass. 
 
@@ -197,7 +197,7 @@ ECOv003-L2T-STARS-install-julia
 
 To re-check an existing install (for example inside the Docker container) without installing anything, run `ECOv003-L2T-STARS-install-julia --verify-only`; it exits non-zero if the Julia version or any import is wrong.
 
-This requires Julia 1.11 (the version the manifests were resolved with). The Dockerfile runs this step during the image build, and all Julia calls in this package run with `--project` pointing at that single pinned environment (data fusion and VNP43NRT share it).
+This requires Julia 1.11 (the version the manifests were resolved with). The Dockerfile runs this step during the image build. Julia is used for STARS data fusion; VIIRS retrieval and BRDF processing use the Python/Rust VCD43NRT package.
 
 ## Usage
 
@@ -207,30 +207,26 @@ Import this package with the name `ECOv003_L2T_STARS` with underscores:
 import ECOv003_L2T_STARS
 ```
 
-### VNP43NRT example
+### VCD43NRT example
 
-To generate a VNP43NRT granule for a date and MODLAND tile, edit the settings
-in [example_VNP43NRT.py](example_VNP43NRT.py) and run:
+To generate a VIIRS NRT granule for a date and MODLAND tile, edit the settings
+in [example_VCD43NRT.py](example_VCD43NRT.py) and run:
 
 ```
-python example_VNP43NRT.py
+python example_VCD43NRT.py
 ```
 
-The example requires the Julia setup described above, Earthdata credentials for
-VNP09GA downloads, and access to GEOS5-FP data. Processing uses VNP09GA
-observations from the target date and the preceding 16 days.
-
-On macOS, the VNP43NRT Julia subprocess ignores `DYLD_LIBRARY_PATH` to avoid
-loading incompatible libraries from the Python environment. The parent
-environment remains unchanged. VNP43NRT selects the first Julia executable on
-`PATH` matching the version in the project manifest (currently Julia 1.11).
+The example requires Earthdata credentials for VIIRS downloads and access to
+GEOS5-FP data. Mission selection is performed per observation date. Set
+`VCD43NRT_VJ209GA_CONCEPT_ID` when the deployment needs a JPSS-2 CMR concept-ID
+override.
 
 ### Command Line Usage
 
 #### Command-Line Entry-Point for the `ECOv003-L2T-STARS` Product Generating Executable
 
 ```bash
-ECOv003-L2T-STARS <runconfig> [--date YYYY-MM-DD] [--spinup-days DAYS] [--target-resolution METERS] [--ndvi-resolution METERS] [--albedo-resolution METERS] [--use-vnp43nrt | --no-vnp43nrt] [--calibrate-fine] [--sources-only] [--no-remove-input-staging] [--no-remove-prior] [--no-remove-posterior] [--threads COUNT] [--num-workers COUNT] [--version]
+ECOv003-L2T-STARS <runconfig> [--date YYYY-MM-DD] [--spinup-days DAYS] [--target-resolution METERS] [--ndvi-resolution METERS] [--albedo-resolution METERS] [--viirs-mission-priority SNPP,JPSS1,JPSS2] [--calibrate-fine] [--sources-only] [--no-remove-input-staging] [--no-remove-prior] [--no-remove-posterior] [--threads COUNT] [--num-workers COUNT] [--version]
 ```
 
 #### Command-Line Entry-Point for the `ECOv003-DL` Product Generating Executable

@@ -24,7 +24,7 @@ test:
 
 test-julia:
 	@echo "Testing Julia environment..."
-	julia --project=ECOv003_L2T_STARS ECOv003_L2T_STARS/julia_smoke_test.jl ECOv003_L2T_STARS/process_ECOSTRESS_data_fusion_distributed_bias.jl ECOv003_L2T_STARS/VNP43NRT/process_VNP43NRT.jl
+	julia --project=ECOv003_L2T_STARS ECOv003_L2T_STARS/julia_smoke_test.jl ECOv003_L2T_STARS/process_ECOSTRESS_data_fusion_distributed_bias.jl
 
 # --- Package Management ---
 

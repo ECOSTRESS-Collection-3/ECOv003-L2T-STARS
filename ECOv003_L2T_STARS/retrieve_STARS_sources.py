@@ -20,7 +20,7 @@ from harmonized_landsat_sentinel import (
 from ECOv003_exit_codes import *
 
 from .daterange import get_date
-from .VNP43NRT import VNP43NRT
+from VCD43NRT import VCD43NRT
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def retrieve_STARS_sources(
     VIIRS_start_date: date,
     VIIRS_end_date: date,
     HLS_connection: HLS2Connection,
-    VIIRS_connection: VNP43NRT):
+    VCD43NRT_connection: VCD43NRT):
     """
     Retrieves necessary Harmonized Landsat Sentinel (HLS) and VIIRS source data.
 
@@ -48,8 +48,7 @@ def retrieve_STARS_sources(
         VIIRS_start_date (date): The start date for VIIRS data retrieval.
         VIIRS_end_date (date): The end date for VIIRS data retrieval.
         HLS_connection (HLS2Connection): An initialized HLS data connection object.
-        VIIRS_connection (VNP43NRT): An initialized VIIRS data connection object
-                                      (can be VNP43NRT, VNP43IA4, or VNP43MA3).
+        VCD43NRT_connection (VCD43NRT): An initialized VIIRS processing connection.
 
     Raises:
         DownloadFailed: If an HLS download fails.
@@ -93,7 +92,7 @@ def retrieve_STARS_sources(
         f"Retrieving VIIRS sources for tile {cl.place(tile)} from {cl.time(VIIRS_start_date)} to {cl.time(VIIRS_end_date)}"
     )
     # Prefetch VNP09GA data for the specified VIIRS date range and geometry
-    VIIRS_connection.prefetch_VNP09GA(
+    VCD43NRT_connection.prefetch_VNP09GA(
         start_date=VIIRS_start_date,
         end_date=VIIRS_end_date,
         geometry=geometry,

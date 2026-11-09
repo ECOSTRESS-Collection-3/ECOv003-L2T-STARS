@@ -2,7 +2,7 @@
 
 julia_version = "1.11.9"
 manifest_format = "2.0"
-project_hash = "bca7210a2cc434f8b3becced80cdd58ca6938109"
+project_hash = "34f2b86c4c76ddb5f4bbc1de0ff99c872d306bc0"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "be7ae030256b8ef14a441726c4c37766b90b93a3"
@@ -1983,12 +1983,6 @@ version = "1.7.0"
 git-tree-sha1 = "ca0969166a028236229f63514992fc073799bb78"
 uuid = "41fe7b60-77ed-43a1-b4f0-825fd5a5650d"
 version = "0.2.0"
-
-[[deps.VNP43NRT]]
-deps = ["ArchGDAL", "Dates", "DimensionalData", "GDAL", "Glob", "LinearAlgebra", "ProgressMeter", "Rasters", "Statistics"]
-path = "VNP43NRT_jl"
-uuid = "ebab2807-db99-43b5-90ec-49665e98c321"
-version = "0.1.0"
 
 [[deps.VersionParsing]]
 git-tree-sha1 = "58d6e80b4ee071f5efd07fda82cb9fbe17200868"

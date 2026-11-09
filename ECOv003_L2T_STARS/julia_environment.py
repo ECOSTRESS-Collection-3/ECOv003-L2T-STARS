@@ -1,13 +1,12 @@
 """
-Management of the Julia environments used by this package.
+Management of the Julia environment used by STARS data fusion.
 
-All Julia code (data fusion and VNP43NRT) runs in one project, this directory, whose
-Project.toml/Manifest.toml pin the exact package versions. VNP43NRT_jl is a path
-dependency of that project.
+Julia is used only for STARS data fusion. The project and manifest pin the
+exact Julia package versions.
 
-pip cannot install Julia packages, so run ``ECOv003-L2T-STARS-install-julia`` once after
-``pip install`` (the Dockerfile does this). Every Julia call in this package runs with
-``--project=<dir>`` so it always uses these pinned environments.
+pip cannot install Julia packages, so run ``ECOv003-L2T-STARS-install-julia``
+once after ``pip install`` (the Dockerfile does this). Every Julia call in this
+package runs with ``--project=<dir>`` so it uses the pinned environment.
 """
 import argparse
 import logging
@@ -30,7 +29,6 @@ SMOKE_TEST = join(PACKAGE_DIRECTORY, "julia_smoke_test.jl")
 PROJECT_SCRIPTS = {
     JULIA_PROJECT: [
         join(PACKAGE_DIRECTORY, "process_ECOSTRESS_data_fusion_distributed_bias.jl"),
-        join(PACKAGE_DIRECTORY, "VNP43NRT", "process_VNP43NRT.jl"),
     ],
 }
 

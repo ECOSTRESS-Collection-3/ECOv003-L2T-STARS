@@ -4,7 +4,7 @@ import sys
 from datetime import date, timedelta
 from os import makedirs
 from os.path import join, exists, basename
-from typing import Union
+from typing import Sequence, Union
 import logging
 import colored_logging as cl
 import pandas as pd
@@ -24,19 +24,18 @@ from harmonized_landsat_sentinel import (
     CMR_SEARCH_URL
 )
 
-from .LPDAAC.LPDAACDataPool import LPDAACServerUnreachable
-
 from ECOv003_exit_codes import *
 
 from ECOv002_granules import L2TLSTE as ECOv002L2TLSTE
 from ECOv003_granules import L2TLSTE
 import urllib
 
+from VCD43NRT.exceptions import CMRServerUnreachable as VCD43NRTCMRServerUnreachable
+from VCD43NRT.VIIRS import DownloadFailed as VCD43NRTDownloadFailed
+
 from .version import __version__
 from .constants import *
-from .VIIRS.VNP43IA4 import VNP43IA4
-from .VIIRS.VNP43MA3 import VNP43MA3
-from .VNP43NRT import VNP43NRT
+from VCD43NRT import VCD43NRT
 from .runconfig import ECOSTRESSRunConfig
 from .L2TSTARSConfig import L2TSTARSConfig
 from .load_prior import load_prior
@@ -53,13 +52,13 @@ def L2T_STARS(
     target_resolution: int = TARGET_RESOLUTION,
     NDVI_resolution: int = NDVI_RESOLUTION,
     albedo_resolution: int = ALBEDO_RESOLUTION,
-    use_VNP43NRT: bool = USE_VNP43NRT,
+    viirs_mission_priority: Union[str, Sequence[str]] = VCD43NRT_MISSION_PRIORITY,
     calibrate_fine: bool = CALIBRATE_FINE,
     sources_only: bool = SOURCES_ONLY,
     remove_input_staging: bool = REMOVE_INPUT_STAGING,
     remove_prior: bool = REMOVE_PRIOR,
     remove_posterior: bool = REMOVE_POSTERIOR,
-    initialize_julia: bool = INITIALIZE_JULIA,
+    initialize_julia: bool = False,
     threads: Union[int, str] = THREADS,
     num_workers: int = WORKERS,
     overwrite: bool = OVERWRITE, # New parameter for overwriting existing files
@@ -84,9 +83,8 @@ def L2T_STARS(
                                          Defaults to DEFAULT_NDVI_RESOLUTION (490).
         albedo_resolution (int, optional): The resolution of the coarse albedo data.
                                            Defaults to DEFAULT_ALBEDO_RESOLUTION (980).
-        use_VNP43NRT (bool, optional): If True, use VNP43NRT for VIIRS products.
-                                       If False, use VNP43IA4 (NDVI) and VNP43MA3 (Albedo).
-                                       Defaults to DEFAULT_USE_VNP43NRT (True).
+        viirs_mission_priority (Union[str, Sequence[str]], optional): VIIRS
+            missions to try in order for each observation date.
         calibrate_fine (bool, optional): If True, calibrate fine resolution HLS data to
                                          coarse resolution VIIRS data. Defaults to DEFAULT_CALIBRATE_FINE (False).
         sources_only (bool, optional): If True, only retrieve source data and exit,
@@ -97,6 +95,7 @@ def L2T_STARS(
                                        Defaults to True.
         remove_posterior (bool, optional): If True, remove posterior intermediate files after
                                            product generation. Defaults to True.
+        initialize_julia (bool, optional): Initialize the Julia environment for STARS data fusion.
         threads (Union[int, str], optional): Number of Julia threads to use, or "auto".
                                             Defaults to "auto".
         num_workers (int, optional): Number of Julia workers for distributed processing.
@@ -244,20 +243,24 @@ def L2T_STARS(
         logger.info(f"HLS download directory: {cl.dir(HLS_download_directory)}")
         HLS_products_directory = join(sources_directory, HLS_PRODUCTS_DIRECTORY)
         logger.info(f"HLS products directory: {cl.dir(HLS_products_directory)}")
-        VIIRS_download_directory = join(sources_directory, VIIRS_DOWNLOAD_DIRECTORY)
-        logger.info(f"VIIRS download directory: {cl.dir(VIIRS_download_directory)}")
-        VIIRS_products_directory = join(sources_directory, VIIRS_PRODUCTS_DIRECTORY)
-        logger.info(f"VIIRS products directory: {cl.dir(VIIRS_products_directory)}")
-        VIIRS_mosaic_directory = join(sources_directory, VIIRS_MOSAIC_DIRECTORY)
-        logger.info(f"VIIRS mosaic directory: {cl.dir(VIIRS_mosaic_directory)}")
+        VCD43NRT_download_directory = join(sources_directory, VCD43NRT_DOWNLOAD_DIRECTORY)
+        logger.info(f"VCD43NRT download directory: {cl.dir(VCD43NRT_download_directory)}")
+        VCD43NRT_input_products_directory = join(
+            sources_directory, VCD43NRT_INPUT_PRODUCTS_DIRECTORY
+        )
+        logger.info(
+            f"VCD43NRT input products directory: {cl.dir(VCD43NRT_input_products_directory)}"
+        )
+        VCD43NRT_mosaic_directory = join(sources_directory, VCD43NRT_MOSAIC_DIRECTORY)
+        logger.info(f"VCD43NRT mosaic directory: {cl.dir(VCD43NRT_mosaic_directory)}")
         GEOS5FP_download_directory = join(sources_directory, GEOS5FP_DOWNLOAD_DIRECTORY)
         logger.info(f"GEOS-5 FP download directory: {cl.dir(GEOS5FP_download_directory)}")
         GEOS5FP_products_directory = join(sources_directory, GEOS5FP_PRODUCTS_DIRECTORY)
         logger.info(f"GEOS-5 FP products directory: {cl.dir(GEOS5FP_products_directory)}")
-        VNP09GA_products_directory = join(sources_directory, VNP09GA_PRODUCTS_DIRECTORY)
-        logger.info(f"VNP09GA products directory: {cl.dir(VNP09GA_products_directory)}")
-        VNP43NRT_products_directory = join(sources_directory, VNP43NRT_PRODUCTS_DIRECTORY)
-        logger.info(f"VNP43NRT products directory: {cl.dir(VNP43NRT_products_directory)}")
+        VCD43NRT_products_directory = join(sources_directory, VCD43NRT_PRODUCTS_DIRECTORY)
+        logger.info(f"VCD43NRT products directory: {cl.dir(VCD43NRT_products_directory)}")
+        VCD43NRT_staging_directory = join(sources_directory, VCD43NRT_STAGING_DIRECTORY)
+        logger.info(f"VCD43NRT staging directory: {cl.dir(VCD43NRT_staging_directory)}")
         DOWNSAMPLED_products_directory = join(sources_directory, STARS_DOWNSAMPLED_DIRECTORY)
         logger.info(f"DOWNSAMPLED products directory: {cl.dir(DOWNSAMPLED_products_directory)}")
 
@@ -292,55 +295,49 @@ def L2T_STARS(
         if not sentinel_tiles.land(tile=tile):
             raise LandFilter(f"Sentinel tile {tile} is not on land. Skipping processing.")
 
-        # Initialize VIIRS data connections based on 'use_VNP43NRT' flag
-        if use_VNP43NRT:
-            try:
-                NDVI_VIIRS_connection = VNP43NRT(
-                    working_directory=working_directory,
-                    download_directory=VIIRS_download_directory,
-                    mosaic_directory=VIIRS_mosaic_directory,
-                    GEOS5FP_download=GEOS5FP_download_directory,
-                    VNP09GA_directory=VNP09GA_products_directory,
-                    VNP43NRT_directory=VNP43NRT_products_directory,
-                    initialize_julia=initialize_julia,
-                )
-
-                albedo_VIIRS_connection = VNP43NRT(
-                    working_directory=working_directory,
-                    download_directory=VIIRS_download_directory,
-                    mosaic_directory=VIIRS_mosaic_directory,
-                    GEOS5FP_download=GEOS5FP_download_directory,
-                    VNP09GA_directory=VNP09GA_products_directory,
-                    VNP43NRT_directory=VNP43NRT_products_directory,
-                    initialize_julia=initialize_julia,
-                )
-            except CMRServerUnreachable as e:
-                logger.exception(e)
-                raise AuxiliaryServerUnreachable(f"Unable to connect to CMR search server for VNP43NRT.")
+        if isinstance(viirs_mission_priority, str):
+            viirs_mission_priority = tuple(
+                mission.strip()
+                for mission in viirs_mission_priority.split(",")
+                if mission.strip()
+            )
         else:
-            try:
-                NDVI_VIIRS_connection = VNP43IA4(
-                    working_directory=working_directory,
-                    download_directory=VIIRS_download_directory,
-                    products_directory=VIIRS_products_directory,
-                    mosaic_directory=VIIRS_mosaic_directory,
-                )
+            viirs_mission_priority = tuple(viirs_mission_priority)
 
-                albedo_VIIRS_connection = VNP43MA3(
-                    working_directory=working_directory,
-                    download_directory=VIIRS_download_directory,
-                    products_directory=VIIRS_products_directory,
-                    mosaic_directory=VIIRS_mosaic_directory,
-                )
-            except LPDAACServerUnreachable as e:
-                logger.exception(e)
-                raise AuxiliaryServerUnreachable(f"Unable to connect to VIIRS LPDAAC server.")
+        if not viirs_mission_priority:
+            raise ValueError("VIIRS mission priority cannot be empty")
+
+        logger.info(
+            f"VCD43NRT mission priority: {', '.join(viirs_mission_priority)}"
+        )
+        try:
+            VCD43NRT_connection = VCD43NRT(
+                working_directory=working_directory,
+                download_directory=VCD43NRT_download_directory,
+                mosaic_directory=VCD43NRT_mosaic_directory,
+                GEOS5FP_download=GEOS5FP_download_directory,
+                VNP09GA_directory=VCD43NRT_input_products_directory,
+                VCD43NRT_directory=VCD43NRT_products_directory,
+                VCD43NRT_staging_directory=VCD43NRT_staging_directory,
+                mission=viirs_mission_priority[0],
+                mission_priority=viirs_mission_priority,
+                fallback_mode=True,
+            )
+        except VCD43NRTCMRServerUnreachable as e:
+            logger.exception(e)
+            raise AuxiliaryServerUnreachable(
+                "Unable to connect to the VIIRS CMR search service."
+            )
+
+        NDVI_VCD43NRT_connection = VCD43NRT_connection
+        albedo_VCD43NRT_connection = VCD43NRT_connection
 
         # Define date ranges for data retrieval and fusion
         end_date = date_UTC
         # The start date of the BRDF-corrected VIIRS coarse time-series is 'spinup_days' before the target date
         VIIRS_start_date = end_date - timedelta(days=spinup_days)
-        # To produce that first BRDF-corrected image, VNP09GA (raw VIIRS) is needed starting 16 days prior to the first coarse date
+        # To produce the first BRDF-corrected image, raw VIIRS inputs are needed
+        # starting 16 days before the first coarse date.
         VIIRS_download_start_date = VIIRS_start_date - timedelta(days=16)
         VIIRS_end_date = end_date
 
@@ -418,7 +415,7 @@ def L2T_STARS(
                 VIIRS_start_date=VIIRS_download_start_date,
                 VIIRS_end_date=VIIRS_end_date,
                 HLS_connection=HLS_connection,
-                VIIRS_connection=NDVI_VIIRS_connection, # Use NDVI_VIIRS_connection as a general VIIRS connection
+                VCD43NRT_connection=NDVI_VCD43NRT_connection,
             )
             # Regenerate inputs to ensure all files are staged, even if not fused
             NDVI_coarse_geometry = HLS_connection.grid(tile=tile, cell_size=NDVI_resolution)
@@ -438,8 +435,8 @@ def L2T_STARS(
                 albedo_coarse_geometry=albedo_coarse_geometry,
                 downsampled_directory=DOWNSAMPLED_products_directory,
                 HLS_connection=HLS_connection,
-                NDVI_VIIRS_connection=NDVI_VIIRS_connection,
-                albedo_VIIRS_connection=albedo_VIIRS_connection,
+                NDVI_VCD43NRT_connection=NDVI_VCD43NRT_connection,
+                albedo_VCD43NRT_connection=albedo_VCD43NRT_connection,
                 calibrate_fine=calibrate_fine,
             )
         else:
@@ -466,8 +463,8 @@ def L2T_STARS(
                 metadata=metadata,
                 prior=prior,
                 HLS_connection=HLS_connection,
-                NDVI_VIIRS_connection=NDVI_VIIRS_connection,
-                albedo_VIIRS_connection=albedo_VIIRS_connection,
+                NDVI_VCD43NRT_connection=NDVI_VCD43NRT_connection,
+                albedo_VCD43NRT_connection=albedo_VCD43NRT_connection,
                 using_prior=using_prior,
                 calibrate_fine=calibrate_fine,
                 remove_input_staging=remove_input_staging,
@@ -479,7 +476,15 @@ def L2T_STARS(
             )
 
     # --- Exception Handling for PGE ---
-    except (ConnectionError, urllib.error.HTTPError, CMRServerUnreachable) as exception:
+    except VCD43NRTDownloadFailed as exception:
+        logger.exception(exception)
+        exit_code = DOWNLOAD_FAILED
+    except (
+        ConnectionError,
+        urllib.error.HTTPError,
+        CMRServerUnreachable,
+        VCD43NRTCMRServerUnreachable,
+    ) as exception:
         logger.exception(exception)
         exit_code = AUXILIARY_SERVER_UNREACHABLE
     except DownloadFailed as exception:

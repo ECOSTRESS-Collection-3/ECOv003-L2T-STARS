@@ -72,16 +72,16 @@ def main():
         metavar="METERS"
     )
     parser.add_argument(
-        "--use-vnp43nrt",
-        action="store_true",
-        default=USE_VNP43NRT,
-        help=f"Use VNP43NRT for VIIRS products. Defaults to {'True' if USE_VNP43NRT else 'False'}.",
-    )
-    parser.add_argument(
-        "--no-vnp43nrt",
-        action="store_false",
-        dest="use_vnp43nrt", # This argument sets use_vnp43nrt to False
-        help="Do NOT use VNP43NRT for VIIRS products. Use VNP43IA4/VNP43MA3 instead.",
+        "--viirs-mission-priority",
+        type=lambda value: tuple(
+            mission.strip() for mission in value.split(",") if mission.strip()
+        ),
+        default=VCD43NRT_MISSION_PRIORITY,
+        metavar="MISSION[,MISSION...]",
+        help=(
+            "Ordered VIIRS mission preference for each observation date "
+            "(SNPP,JPSS1,JPSS2 by default)."
+        ),
     )
     parser.add_argument(
         "--calibrate-fine",
@@ -157,7 +157,7 @@ def main():
         target_resolution=args.target_resolution,
         NDVI_resolution=args.ndvi_resolution,
         albedo_resolution=args.albedo_resolution,
-        use_VNP43NRT=args.use_vnp43nrt,
+        viirs_mission_priority=args.viirs_mission_priority,
         calibrate_fine=args.calibrate_fine,
         sources_only=args.sources_only,
         remove_input_staging=args.remove_input_staging,

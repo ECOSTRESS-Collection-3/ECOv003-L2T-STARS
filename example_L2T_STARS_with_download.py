@@ -40,7 +40,6 @@ print("Runconfig generated:", runconfig_filename)
 # Run L2T STARS PGE
 exit_code = L2T_STARS(
     runconfig_filename=runconfig_filename,
-    use_VNP43NRT=True,
     threads=1,
     num_workers=8,
     remove_input_staging=False,

@@ -15,9 +15,9 @@ from harmonized_landsat_sentinel import HLS2Connection
 
 from ECOv003_granules import L2TSTARS, NDVI_COLORMAP, ALBEDO_COLORMAP
 from ECOv003_exit_codes import BlankOutput
+from VCD43NRT import VCD43NRT
 
 from .constants import *
-from .VIIRS import VIIRSDownloaderNDVI, VIIRSDownloaderAlbedo
 from .generate_model_state_tile_date_directory import generate_model_state_tile_date_directory
 from .generate_STARS_inputs import generate_STARS_inputs
 from .generate_filename import generate_filename
@@ -75,8 +75,8 @@ def process_STARS_product(
     metadata: dict,
     prior: Prior,
     HLS_connection: HLS2Connection,
-    NDVI_VIIRS_connection: VIIRSDownloaderNDVI,
-    albedo_VIIRS_connection: VIIRSDownloaderAlbedo,
+    NDVI_VCD43NRT_connection: VCD43NRT,
+    albedo_VCD43NRT_connection: VCD43NRT,
     using_prior: bool = False,
     calibrate_fine: bool = False,
     remove_input_staging: bool = True,
@@ -116,8 +116,8 @@ def process_STARS_product(
         metadata (dict): Dictionary containing product metadata.
         prior (Prior): An object containing information about the prior product.
         HLS_connection (HLS2Connection): An initialized HLS data connection object.
-        NDVI_VIIRS_connection (VIIRSDownloaderNDVI): An initialized VIIRS NDVI downloader.
-        albedo_VIIRS_connection (VIIRSDownloaderAlbedo): An initialized VIIRS albedo downloader.
+        NDVI_VCD43NRT_connection (VCD43NRT): An initialized VIIRS processor.
+        albedo_VCD43NRT_connection (VCD43NRT): An initialized VIIRS processor.
         using_prior (bool, optional): If True, use the prior product in fusion. Defaults to False.
         calibrate_fine (bool, optional): If True, calibrate fine images to coarse images.
                                          Defaults to False.
@@ -164,8 +164,8 @@ def process_STARS_product(
         albedo_coarse_geometry=albedo_coarse_geometry,
         downsampled_directory=downsampled_directory,
         HLS_connection=HLS_connection,
-        NDVI_VIIRS_connection=NDVI_VIIRS_connection,
-        albedo_VIIRS_connection=albedo_VIIRS_connection,
+        NDVI_VCD43NRT_connection=NDVI_VCD43NRT_connection,
+        albedo_VCD43NRT_connection=albedo_VCD43NRT_connection,
         calibrate_fine=calibrate_fine,
     )
 

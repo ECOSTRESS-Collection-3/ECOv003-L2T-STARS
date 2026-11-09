@@ -34,6 +34,7 @@ dependencies = [
     "sentinel-tiles",
     "shapely",
     "untangle",
+    "VCD43NRT~=1.0.1",
     "xmltodict"
 ]
 

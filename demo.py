@@ -57,5 +57,5 @@ with open(runconfig_filename, "r") as f:
     print(f.read())
 
 # Run the L2T STARS PGE
-exit_code = L2T_STARS(runconfig_filename=runconfig_filename, use_VNP43NRT=False)
+exit_code = L2T_STARS(runconfig_filename=runconfig_filename)
 print(exit_code)

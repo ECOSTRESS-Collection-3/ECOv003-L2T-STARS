@@ -15,17 +15,14 @@ STARS_PRODUCTS_DIRECTORY = "STARS_products"
 HLS_DOWNLOAD_DIRECTORY = "HLS2_download"
 LANDSAT_DOWNLOAD_DIRECTORY = "HLS2_download"  # Redundant but kept for clarity
 HLS_PRODUCTS_DIRECTORY = "HLS2_products"
-VIIRS_DOWNLOAD_DIRECTORY = "VIIRS_download"
-VIIRS_PRODUCTS_DIRECTORY = "VIIRS_products"
-VIIRS_MOSAIC_DIRECTORY = "VIIRS_mosaic"
+VCD43NRT_DOWNLOAD_DIRECTORY = "VCD43NRT_download"
+VCD43NRT_INPUT_PRODUCTS_DIRECTORY = "VCD43NRT_inputs"
+VCD43NRT_MOSAIC_DIRECTORY = "VCD43NRT_mosaics"
+VCD43NRT_PRODUCTS_DIRECTORY = "VCD43NRT_products"
+VCD43NRT_STAGING_DIRECTORY = "VCD43NRT_staging"
 GEOS5FP_DOWNLOAD_DIRECTORY = "GEOS5FP_download"
 GEOS5FP_PRODUCTS_DIRECTORY = "GEOS5FP_products"
-VNP09GA_PRODUCTS_DIRECTORY = "VNP09GA_products"
-VNP43NRT_PRODUCTS_DIRECTORY = "VNP43NRT_products"
-STARS_DOWNSAMPLED_DIRECTORY = "DOWNSAMPLED_products"
-
-# environment behavior
-INITIALIZE_JULIA = False  # Flag to initialize Julia environment
+STARS_DOWNSAMPLED_DIRECTORY = "VCD43NRT_DOWNSAMPLED_products"
 
 # Processing parameters
 VIIRS_GIVEUP_DAYS = 4  # Number of days to give up waiting for VIIRS data
@@ -34,7 +31,7 @@ TARGET_RESOLUTION = 70  # Target output resolution in meters
 NDVI_RESOLUTION = 490  # NDVI coarse resolution in meters
 ALBEDO_RESOLUTION = 980  # Albedo coarse resolution in meters
 USE_SPATIAL = False  # Flag for using spatial interpolation (currently unused)
-USE_VNP43NRT = True  # Flag for using VNP43NRT VIIRS product
+VCD43NRT_MISSION_PRIORITY = ("SNPP", "JPSS1", "JPSS2")
 CALIBRATE_FINE = False  # Flag for calibrating fine resolution data to coarse
 THREADS = "auto"  # Number of threads to use, 'auto' for automatic detection
 WORKERS = 4  # Number of worker processes for parallel processing

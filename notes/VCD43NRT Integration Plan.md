@@ -14,19 +14,18 @@ project owner to produce the same output as the old Julia implementation when
 using SNPP. Treat that SNPP parity as established; retain it as an integration
 regression check rather than reopening the algorithm as a migration scope.
 
-JPSS should be added at the input/source-selection layer. Do not replace the
-NRT path with the separate precomputed `VNP43IA4`/`VNP43MA3` path, and do not
-change HLS processing, time-series windows, STARS fusion, product generation,
-or ECOSTRESS output contracts.
+JPSS should be added at the input/source-selection layer. Remove the local
+VIIRS readers and both local NRT/precomputed product paths after replacing
+them with VCD43NRT. Do not change HLS processing, time-series windows, STARS
+fusion, product generation, or ECOSTRESS output contracts.
 
 ## Existing workflow and integration boundary
 
 The main integration points are:
 
 - [`ECOv003_L2T_STARS/L2T_STARS.py`](../ECOv003_L2T_STARS/L2T_STARS.py):
-  creates the NRT or precomputed-product VIIRS connections. Keep the existing
-  `use_VNP43NRT` behavior: its true branch becomes the package-backed NRT
-  workflow; its false branch continues to use `VNP43IA4` and `VNP43MA3`.
+  creates the VIIRS connection through VCD43NRT. Remove the legacy
+  `use_VNP43NRT` switch and the precomputed `VNP43IA4`/`VNP43MA3` branch.
 - [`ECOv003_L2T_STARS/retrieve_STARS_sources.py`](../ECOv003_L2T_STARS/retrieve_STARS_sources.py):
   prefetches daily VIIRS input data. Continue retrieving the same date range
   and geometry, including the 16-day BRDF lookback needed before the first
@@ -98,8 +97,7 @@ needed elsewhere in the pipeline.
 
 ### 3. Connect VCD43NRT without changing the ECOSTRESS-facing workflow
 
-- Replace the NRT connection constructed in the `use_VNP43NRT` branch of
-  `L2T_STARS.py` with the package's `VCD43NRT` connection. Pass through the
+- Construct the package's `VCD43NRT` connection in `L2T_STARS.py`. Pass through the
   existing working, download, VNP09GA-input, mosaic, and GEOS5-FP locations
   using the package's supported constructor arguments; set mission policy
   explicitly.
@@ -115,10 +113,9 @@ needed elsewhere in the pipeline.
   calculations, HLS handling, calibration option, and downstream product
   generation unchanged. Keep current ECOSTRESS product names, layers, grids,
   and metadata.
-- Retain the `use_VNP43NRT` option's existing meaning and the separate
-  precomputed VIIRS path. Update descriptions only as needed to explain that
-  the selected NRT implementation is package-backed and can use configured
-  JPSS fallback.
+- Remove the `use_VNP43NRT` selection option and the precomputed-product
+  selection path. Update command-line documentation to describe the
+  package-backed processor and mission-priority option.
 
 ### 4. Make provenance and caches mission-safe
 
@@ -167,8 +164,8 @@ needed elsewhere in the pipeline.
   geometry, resampling, mosaicking, cache reuse, and no-intersection errors.
 - End-to-end STARS input regression: unchanged HLS retrieval, date windows,
   490 m/980 m coarse files, staged filenames, zero-to-NoData treatment, and
-  unchanged downstream product generation. Verify the precomputed-product
-  branch still works.
+  unchanged downstream product generation. Verify all former precomputed
+  VIIRS readers and call paths have been removed.
 
 ### Operational verification
 
@@ -180,9 +177,8 @@ needed elsewhere in the pipeline.
   mission selection, input gaps, errors, cache behavior, coverage, runtime,
   and resource use.
 - Keep the previous NRT implementation available for rollback through
-  acceptance and an agreed monitoring period. Remove old NRT-only code only
-  after checking all callers and preserving the independent precomputed path
-  and Julia STARS requirements.
+  acceptance and an agreed monitoring period. Remove the old VIIRS retrieval,
+  NRT, and precomputed-product code while preserving Julia STARS requirements.
 
 ## Completion criteria
 
@@ -190,7 +186,7 @@ needed elsewhere in the pipeline.
   existing ECOSTRESS workflow and product contract.
 - JPSS-1 and JPSS-2 can be selected and used correctly, with deterministic
   SNPP-first per-date fallback and provenance for mixed-mission windows.
-- Existing no-data, latency, error, and precomputed-product behavior remains
-  compatible; mission/configuration and cache behavior are reproducible.
+- Existing no-data, latency, and error behavior remains compatible;
+  mission/configuration and cache behavior are reproducible.
 - Production installation, integration tests, operational checks, and
   rollback readiness pass before JPSS fallback is enabled for production.
