@@ -1,6 +1,5 @@
 from typing import Union
-from datetime import date, datetime
-from dateutil.rrule import rrule, DAILY
+from datetime import date, datetime, timedelta
 from os.path import exists
 import logging
 
@@ -13,7 +12,6 @@ from ECOv003_exit_codes import AuxiliaryLatency
 
 from .constants import VIIRS_GIVEUP_DAYS
 from .generate_filename import generate_filename
-from .daterange import get_date
 from .generate_NDVI_coarse_image import generate_NDVI_coarse_image
 from .generate_NDVI_fine_image import generate_NDVI_fine_image
 from .generate_albedo_coarse_image import generate_albedo_coarse_image
@@ -81,9 +79,8 @@ def generate_STARS_inputs(
     logger.info(f"preparing coarse and fine images for STARS at {cl.place(tile)}")
 
     # Process each day within the VIIRS data fusion window
-    for processing_date in [
-        get_date(dt) for dt in rrule(DAILY, dtstart=VIIRS_start_date, until=VIIRS_end_date)
-    ]:
+    for day_offset in range((VIIRS_end_date - VIIRS_start_date).days + 1):
+        processing_date = VIIRS_start_date + timedelta(days=day_offset)
         NDVI_coarse_filename = generate_downsampled_filename(
             directory=downsampled_directory,
             variable="NDVI",

@@ -1,7 +1,5 @@
-from datetime import date
+from datetime import date, timedelta
 import logging
-
-from dateutil.rrule import rrule, DAILY
 
 from rasters import RasterGeometry
 
@@ -19,7 +17,6 @@ from harmonized_landsat_sentinel import (
 
 from ECOv003_exit_codes import *
 
-from .daterange import get_date
 from VCD43NRT import VCD43NRT
 
 logger = logging.getLogger(__name__)
@@ -58,9 +55,8 @@ def retrieve_STARS_sources(
         f"Retrieving HLS sources for tile {cl.place(tile)} from {cl.time(HLS_start_date)} to {cl.time(HLS_end_date)}"
     )
     # Iterate through each day in the HLS date range to retrieve Sentinel and Landsat data
-    for processing_date in [
-        get_date(dt) for dt in rrule(DAILY, dtstart=HLS_start_date, until=HLS_end_date)
-    ]:
+    for day_offset in range((HLS_end_date - HLS_start_date).days + 1):
+        processing_date = HLS_start_date + timedelta(days=day_offset)
         try:
             logger.info(
                 f"Retrieving HLS Sentinel at tile {cl.place(tile)} on date {cl.time(processing_date)}"

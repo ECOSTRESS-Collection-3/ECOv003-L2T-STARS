@@ -26,25 +26,6 @@ for module in missing_modules:
 class TestDateHandling:
     """Tests for date range and date utility functions."""
     
-    def test_get_date_from_string(self):
-        """Test date parsing from string."""
-        from ECOv003_L2T_STARS.daterange import get_date
-        
-        # Test various date formats
-        test_date = get_date("2024-10-30")
-        assert isinstance(test_date, date)
-        assert test_date.year == 2024
-        assert test_date.month == 10
-        assert test_date.day == 30
-    
-    def test_get_date_from_date_object(self):
-        """Test that date objects pass through unchanged."""
-        from ECOv003_L2T_STARS.daterange import get_date
-        
-        input_date = date(2024, 10, 30)
-        result = get_date(input_date)
-        assert result == input_date
-    
     def test_date_range_calculation(self):
         """Test date range calculations for spinup."""
         start_date = date(2024, 10, 30)
@@ -57,16 +38,20 @@ class TestDateHandling:
         assert (start_date - viirs_start).days == spinup_days
     
     def test_date_range_inclusive(self):
-        """Test that date ranges are inclusive of endpoints."""
-        from dateutil.rrule import rrule, DAILY
-        
+        """Test that standard date arithmetic includes both endpoints."""
         start = date(2024, 10, 28)
         end = date(2024, 10, 30)
         
-        dates = list(rrule(DAILY, dtstart=start, until=end))
+        dates = [
+            start + timedelta(days=day_offset)
+            for day_offset in range((end - start).days + 1)
+        ]
         
-        # Should include 3 days: 28th, 29th, 30th
-        assert len(dates) == 3
+        assert dates == [
+            date(2024, 10, 28),
+            date(2024, 10, 29),
+            date(2024, 10, 30),
+        ]
 
 
 class TestTimeHandling:
