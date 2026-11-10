@@ -4,8 +4,7 @@ from os.path import join
 from ECOv003_CMR import download_ECOSTRESS_granule
 from ECOv003_L2T_STARS import generate_L2T_STARS_runconfig, L2T_STARS
 
-# Disable logger output
-logging.getLogger().handlers = []
+logging.basicConfig(level=logging.INFO)
 
 # Set working directory
 working_directory = join("~", "data", "ECOv003_testing")

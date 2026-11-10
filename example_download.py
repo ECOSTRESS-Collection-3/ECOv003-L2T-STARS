@@ -3,8 +3,7 @@ import logging
 from os.path import join
 from ECOv003_CMR import download_ECOSTRESS_granule
 
-# Disable logger output
-logging.getLogger().handlers = []
+logging.basicConfig(level=logging.INFO)
 
 # Set working directory
 working_directory = join("~", "data", "ECOv003_testing")
@@ -26,3 +25,6 @@ L2T_STARS_granule = download_ECOSTRESS_granule(
     aquisition_date="2026-10-20",
     parent_directory=working_directory
 )
+
+print(L2T_LSTE_granule)
+print(L2T_STARS_granule)
