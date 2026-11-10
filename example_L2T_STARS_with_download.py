@@ -14,7 +14,7 @@ working_directory = join("~", "data", "ECOv003_testing")
 L2T_LSTE_granule = download_ECOSTRESS_granule(
     product="L2T_LSTE", 
     tile="11SPS", 
-    aquisition_date="2024-10-10",
+    aquisition_date="2026-10-10",
     parent_directory=working_directory
 )
 
@@ -22,7 +22,7 @@ L2T_LSTE_granule = download_ECOSTRESS_granule(
 L2T_STARS_granule = download_ECOSTRESS_granule(
     product="L2T_STARS", 
     tile="11SPS", 
-    aquisition_date="2024-10-06",
+    aquisition_date="2026-10-06",
     parent_directory=working_directory
 )
 

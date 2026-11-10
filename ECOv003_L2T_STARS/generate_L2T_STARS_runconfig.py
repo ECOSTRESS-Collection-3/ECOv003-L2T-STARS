@@ -53,7 +53,7 @@ def generate_L2T_STARS_runconfig(
     Args:
         L2T_LSTE_filename (str): Path to the input ECOSTRESS L2T LSTE granule file.
         prior_L2T_STARS_filename (str, optional): Path to a prior L2T_STARS product file.
-            Defaults to "".
+            Home-directory paths are expanded. Defaults to "".
         orbit (int, optional): Orbit number. If None, derived from L2T_LSTE_filename.
         scene (int, optional): Scene ID. If None, derived from L2T_LSTE_filename.
         tile (str, optional): HLS tile ID (e.g., '11SPS'). If None, derived from L2T_LSTE_filename.
@@ -203,6 +203,8 @@ def generate_L2T_STARS_runconfig(
 
     # Resolve absolute path for the input L2T_LSTE file
     L2T_LSTE_filename = abspath(expanduser(L2T_LSTE_filename))
+    if prior_L2T_STARS_filename:
+        prior_L2T_STARS_filename = abspath(expanduser(prior_L2T_STARS_filename))
 
     logger.info(f"Loading L2T_STARS template: {cl.file(template_filename)}")
 

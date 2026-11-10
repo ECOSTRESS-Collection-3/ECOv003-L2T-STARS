@@ -4,23 +4,24 @@ ENVIRONMENT_NAME = $(PACKAGE_NAME)
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
 PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.13)
 
-.PHONY: clean test test-julia build twine-upload dist install-package install uninstall reinstall environment remove-environment install-julia colima-start docker-build docker-build-environment docker-build-installation docker-interactive docker-remove
+.PHONY: clean test test-julia build twine-upload dist install-package install \
+        uninstall reinstall environment remove-environment install-julia \
+        resolve-julia colima-start docker-build docker-build-environment \
+        docker-build-installation docker-interactive docker-remove
 
 # --- Cleaning and Maintenance ---
 
 clean:
 	@echo "Cleaning up build artifacts..."
 	rm -rf *.o *.out *.log
-	rm -rf build/
-	rm -rf dist/
-	rm -rf *.egg-info
-	rm -rf .pytest_cache
+	rm -rf build/ dist/ *.egg-info .pytest_cache .coverage htmlcov
 	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
 
 # --- Testing ---
 
 test:
-	@echo "Running tests..."
+	@echo "Running Python test suite..."
 	PYTHONPATH=. pytest
 
 test-julia:
@@ -49,7 +50,7 @@ install: install-julia install-package
 
 uninstall:
 	@echo "Uninstalling $(PACKAGE_NAME)..."
-	pip uninstall $(PACKAGE_NAME)
+	pip uninstall -y $(PACKAGE_NAME)
 
 reinstall: uninstall install
 	@echo "Package reinstalled."
@@ -68,29 +69,32 @@ install-julia:
 	@echo "Installing pinned Julia packages from Manifest.toml..."
 	julia --project=ECOv003_L2T_STARS -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 
+resolve-julia:
+	@echo "Resolving Julia dependencies and updating Manifest.toml..."
+	julia --project=ECOv003_L2T_STARS -e 'using Pkg; Pkg.resolve(); Pkg.precompile()'
+
 # --- Docker & Colima ---
 
 colima-start:
-	@echo "Starting Colima..."
+	@echo "Starting Colima (x86_64 emulation)..."
 	colima start -m 16 -a x86_64 -d 100
 
 docker-build:
 	@echo "Building Docker image: $(DOCKER_IMAGE_NAME):latest..."
-	docker build -t $(DOCKER_IMAGE_NAME):latest .
+	docker build --platform linux/amd64 -t $(DOCKER_IMAGE_NAME):latest .
 
 docker-build-environment:
 	@echo "Building Docker environment target..."
-	docker build --target environment -t $(DOCKER_IMAGE_NAME):latest .
+	docker build --platform linux/amd64 --target environment -t $(DOCKER_IMAGE_NAME):latest .
 
 docker-build-installation:
 	@echo "Building Docker installation target..."
-	docker build --target installation -t $(DOCKER_IMAGE_NAME):latest .
+	docker build --platform linux/amd64 --target installation -t $(DOCKER_IMAGE_NAME):latest .
 
 docker-interactive:
 	@echo "Starting interactive Docker session..."
-	docker run -it $(DOCKER_IMAGE_NAME) fish
+	docker run --rm -it $(DOCKER_IMAGE_NAME):latest fish
 
 docker-remove:
 	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME)..."
-	docker rmi -f $(DOCKER_IMAGE_NAME)
-	
+	docker rmi -f $(DOCKER_IMAGE_NAME):latest

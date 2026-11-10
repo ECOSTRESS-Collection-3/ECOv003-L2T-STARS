@@ -1,4 +1,4 @@
-from os.path import exists
+from os.path import abspath, exists, expanduser
 import logging
 
 from dateutil import parser
@@ -115,8 +115,12 @@ class L2TSTARSConfig(ECOSTRESSRunConfig):
             self.L2T_STARS_prior_filename = None
             if "L2T_STARS_PRIOR" in runconfig["InputFileGroup"]:
                 prior_filename = runconfig["InputFileGroup"]["L2T_STARS_PRIOR"]
-                if prior_filename != "" and exists(prior_filename):
-                    self.L2T_STARS_prior_filename = abspath(prior_filename)
+                if prior_filename:
+                    prior_filename = abspath(expanduser(prior_filename))
+                    if exists(prior_filename):
+                        self.L2T_STARS_prior_filename = prior_filename
+                    else:
+                        logger.warning(f"L2T_STARS prior file not found: {prior_filename}")
                 logger.info(
                     f"L2T_STARS prior file: {cl.file(self.L2T_STARS_prior_filename)}"
                 )
