@@ -2,6 +2,7 @@
 PACKAGE_NAME = ECOv003-L2T-STARS
 ENVIRONMENT_NAME = $(PACKAGE_NAME)
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
+PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.13)
 
 .PHONY: clean test test-julia build twine-upload dist install-package install uninstall reinstall environment remove-environment install-julia colima-start docker-build docker-build-environment docker-build-installation docker-interactive docker-remove
 
@@ -57,7 +58,7 @@ reinstall: uninstall install
 
 environment:
 	@echo "Creating mamba environment: $(ENVIRONMENT_NAME)..."
-	mamba create -y -n $(ENVIRONMENT_NAME) -c conda-forge python=3.11
+	mamba create -y -n $(ENVIRONMENT_NAME) -c conda-forge python=$(PYTHON_VERSION)
 
 remove-environment:
 	@echo "Removing mamba environment: $(ENVIRONMENT_NAME)..."
@@ -92,3 +93,4 @@ docker-interactive:
 docker-remove:
 	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME)..."
 	docker rmi -f $(DOCKER_IMAGE_NAME)
+	
