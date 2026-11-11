@@ -197,7 +197,7 @@ ECOv003-L2T-STARS-install-julia
 
 To re-check an existing install (for example inside the Docker container) without installing anything, run `ECOv003-L2T-STARS-install-julia --verify-only`; it exits non-zero if the Julia version or any import is wrong.
 
-This requires Julia 1.11 (the version the manifests were resolved with). The Dockerfile runs this step during the image build. Julia is used for STARS data fusion; VIIRS retrieval and BRDF processing use the Python/Rust VCD43NRT package.
+This requires Julia 1.13 (the version the manifests were resolved with). The Dockerfile runs this step during the image build. Julia is used for STARS data fusion; VIIRS retrieval and BRDF processing use the Python/Rust VCD43NRT package.
 
 ## Usage
 

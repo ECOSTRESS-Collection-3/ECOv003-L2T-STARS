@@ -11,8 +11,8 @@ DOWNSAMPLED_DIR="${DOWNSAMPLED_DIR:-$HOME/data/ECOv003_testing/L2T_STARS_SOURCES
 
 # Run the package's Julia data fusion code on the priors in test_inputs.
 # Experimental posteriors are written to test_outputs; the reference
-# posteriors are in expected_outputs. Julia 1.11 matches the Manifest.toml.
-julia +1.11 --project=ECOv003_L2T_STARS \
+# posteriors are in expected_outputs. Julia 1.13 matches the Manifest.toml.
+julia +1.13 --project=ECOv003_L2T_STARS \
   --threads 1 \
   ECOv003_L2T_STARS/process_ECOSTRESS_data_fusion_distributed_bias.jl \
   8 \

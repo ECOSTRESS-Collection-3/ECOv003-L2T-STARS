@@ -6,7 +6,7 @@ PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.13)
 
 .PHONY: clean test test-julia build twine-upload dist install-package install \
         uninstall reinstall environment remove-environment install-julia \
-        resolve-julia colima-start docker-build docker-build-environment \
+        resolve-julia julia-version colima-start docker-build docker-build-environment \
         docker-build-installation docker-interactive docker-remove
 
 # --- Cleaning and Maintenance ---
@@ -68,6 +68,10 @@ remove-environment:
 install-julia:
 	@echo "Installing pinned Julia packages from Manifest.toml..."
 	julia --project=ECOv003_L2T_STARS -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+
+julia-version:
+	@test -n "$(JULIA_VERSION)" || (echo "usage: make julia-version JULIA_VERSION=1.13"; exit 1)
+	python set_julia_version.py $(JULIA_VERSION)
 
 resolve-julia:
 	@echo "Resolving Julia dependencies and updating Manifest.toml..."
