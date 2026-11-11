@@ -3,7 +3,7 @@ PACKAGE_NAME = ECOv003-L2T-STARS
 ENVIRONMENT_NAME = $(PACKAGE_NAME)
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
 PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.13)
-JULIA_VERSION = $(if $(JULIA),$(JULIA),1.13.3)
+JULIA_VERSION = $(if $(JULIA),$(JULIA),1.11)
 JULIA_PROJECT_NAME = $(if $(JULIA_PROJECT),$(JULIA_PROJECT),$(subst -,_,$(PACKAGE_NAME)))
 
 .PHONY: clean test smoke-test smoke-test-python smoke-test-julia test-julia \
