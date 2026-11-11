@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Reconfigure this package for a target Julia version.
+Reconfigure this package for a target Julia version with a complete environment overhaul.
 
 Usage: python set_julia_version.py 1.13        (or 1.13.3)
 
-Installs the Julia channel with juliaup if missing, re-resolves
-ECOv003_L2T_STARS/Manifest.toml with that Julia, runs the smoke test, then
-updates the Dockerfile, README.md and julia_test.sh to match.
+Installs the Julia channel with juliaup if missing, cleans out stale manifest/cache
+artifacts, updates the registry, recalculates dependencies from scratch, runs the
+smoke test, and synchronizes the Dockerfile, README.md, and julia_test.sh.
 """
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +32,20 @@ def substitute(path: Path, pattern: str, replacement: str) -> None:
     path.write_text(new_text)
 
 
+def purge_stale_environment(channel: str):
+    """Remove manifest locks and precompile cache to force a fresh resolution."""
+    # 1. Remove pinned Manifest
+    if MANIFEST.exists():
+        print(f"Purging existing manifest: {MANIFEST}")
+        MANIFEST.unlink()
+
+    # 2. Clean compiled caches for this specific Julia channel to prevent symbol pollution
+    compiled_dir = Path.home() / ".julia" / "compiled" / f"v{channel}"
+    if compiled_dir.exists():
+        print(f"Purging precompile cache: {compiled_dir}")
+        shutil.rmtree(compiled_dir, ignore_errors=True)
+
+
 def main() -> int:
     if len(sys.argv) != 2 or not re.fullmatch(r"\d+\.\d+(\.\d+)?", sys.argv[1]):
         print(__doc__)
@@ -41,12 +56,25 @@ def main() -> int:
     if probe.returncode != 0:
         run(["juliaup", "add", channel])
 
+    # Clean stale locks and compiled caches before building the new environment
+    purge_stale_environment(channel)
+
     julia = ["julia", f"+{channel}", f"--project={PROJECT}"]
-    run([*julia, "-e", "using Pkg; Pkg.resolve(); Pkg.instantiate(); Pkg.precompile()"])
+
+    # Update package registry first, then resolve from clean Project.toml
+    overhaul_expr = (
+        "using Pkg; "
+        "Pkg.Registry.update(); "
+        "Pkg.resolve(); "
+        "Pkg.instantiate(); "
+        "Pkg.precompile()"
+    )
+    run([*julia, "-e", overhaul_expr])
+
     run([*julia, str(PROJECT / "julia_smoke_test.jl"),
          str(PROJECT / "process_ECOSTRESS_data_fusion_distributed_bias.jl")])
 
-    # Full patch version that actually produced the manifest, used for the Docker download
+    # Full patch version that produced the manifest, used for the Docker download
     full = re.search(r'^julia_version\s*=\s*"(\d+\.\d+\.\d+)', MANIFEST.read_text(), re.MULTILINE)
     if not full:
         raise SystemExit("cannot read julia_version from Manifest.toml")
