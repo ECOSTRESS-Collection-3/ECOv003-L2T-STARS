@@ -1,5 +1,5 @@
-import os
 import importlib
+import os
 import shutil
 import subprocess
 from unittest.mock import Mock, call
@@ -138,15 +138,20 @@ def test_install_julia_reports_instantiation_failure(monkeypatch):
 
 @pytest.mark.skipif(os.name == "nt", reason="uses a POSIX executable")
 def test_install_julia_runs_real_subprocesses(monkeypatch, tmp_path):
+    version = manifest_julia_version()
     executable = tmp_path / "julia"
     commands = tmp_path / "commands"
     executable.write_text(
         '#!/bin/sh\n'
-        'if [ "$1" = "--version" ]; then echo "julia version 1.11.6"; exit; fi\n'
+        f'if [ "$1" = "--version" ]; then echo "julia version {version}"; exit; fi\n'
         'printf "%s\\n" "$*" >> "$JULIA_TEST_COMMANDS"\n'
     )
     executable.chmod(0o755)
-    monkeypatch.setenv("PATH", str(tmp_path))
+
+    # Prepend tmp_path so the mock 'julia' is found first without dropping system tools like /bin/sh
+    current_path = os.environ.get("PATH", "")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{current_path}")
+
     monkeypatch.setenv("JULIA_TEST_COMMANDS", str(commands))
     monkeypatch.setattr("ECOv003_L2T_STARS.julia_environment.find_juliaup", lambda: None)
 
