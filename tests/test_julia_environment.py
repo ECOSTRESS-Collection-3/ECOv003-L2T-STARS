@@ -1,5 +1,5 @@
-import os
 import importlib
+import os
 import shutil
 import subprocess
 from unittest.mock import Mock, call
@@ -24,8 +24,8 @@ def test_install_julia_is_exposed_at_package_level():
 
 
 def test_install_julia_reuses_existing_runtime(monkeypatch):
-    monkeypatch.setattr(installer, "manifest_julia_version", lambda: "1.13.3")
-    monkeypatch.setattr(installer, "find_julia_command", lambda: ["/bin/julia", "+1.13.3"])
+    monkeypatch.setattr(installer, "manifest_julia_version", lambda: "1.11.6")
+    monkeypatch.setattr(installer, "find_julia_command", lambda: ["/bin/julia", "+1.11.6"])
     run = Mock()
     verify = Mock()
     monkeypatch.setattr(installer, "_run", run)
@@ -35,16 +35,16 @@ def test_install_julia_reuses_existing_runtime(monkeypatch):
     installer.install_julia()
 
     run.assert_called_once_with([
-        "/bin/julia", "+1.13.3", f"--project={JULIA_PROJECT}",
+        "/bin/julia", "+1.11.6", f"--project={JULIA_PROJECT}",
         "-e", "using Pkg; Pkg.instantiate(); Pkg.precompile()",
     ])
-    verify.assert_called_once_with(["/bin/julia", "+1.13.3"])
+    verify.assert_called_once_with(["/bin/julia", "+1.11.6"])
 
 
 @pytest.mark.parametrize("existing_juliaup", [None, "/usr/bin/juliaup"])
 def test_install_julia_installs_missing_runtime(monkeypatch, existing_juliaup):
-    monkeypatch.setattr(installer, "manifest_julia_version", lambda: "1.13.3")
-    find = Mock(side_effect=[FileNotFoundError("missing"), ["/juliaup/bin/julia", "+1.13.3"]])
+    monkeypatch.setattr(installer, "manifest_julia_version", lambda: "1.11.6")
+    find = Mock(side_effect=[FileNotFoundError("missing"), ["/juliaup/bin/julia", "+1.11.6"]])
     monkeypatch.setattr(installer, "find_julia_command", find)
     monkeypatch.setattr(installer, "find_juliaup", lambda: existing_juliaup)
     install_up = Mock(return_value="/juliaup/bin/juliaup")
@@ -58,13 +58,13 @@ def test_install_julia_installs_missing_runtime(monkeypatch, existing_juliaup):
     if existing_juliaup:
         install_up.assert_not_called()
     else:
-        install_up.assert_called_once_with("1.13.3")
-    assert run.call_args_list[0] == call([existing_juliaup or "/juliaup/bin/juliaup", "add", "1.13.3"])
-    assert run.call_args_list[1].args[0][:2] == ["/juliaup/bin/julia", "+1.13.3"]
+        install_up.assert_called_once_with("1.11.6")
+    assert run.call_args_list[0] == call([existing_juliaup or "/juliaup/bin/juliaup", "add", "1.11.6"])
+    assert run.call_args_list[1].args[0][:2] == ["/juliaup/bin/julia", "+1.11.6"]
 
 
 def test_install_julia_surfaces_install_errors(monkeypatch):
-    monkeypatch.setattr(installer, "manifest_julia_version", lambda: "1.13.3")
+    monkeypatch.setattr(installer, "manifest_julia_version", lambda: "1.11.6")
     monkeypatch.setattr(installer, "find_julia_command", Mock(side_effect=FileNotFoundError("missing")))
     monkeypatch.setattr(installer, "find_juliaup", lambda: "/usr/bin/juliaup")
     monkeypatch.setattr(installer, "_run", Mock(side_effect=JuliaEnvironmentError("download failed")))
@@ -73,22 +73,22 @@ def test_install_julia_surfaces_install_errors(monkeypatch):
 
 
 def test_find_julia_uses_explicit_channel_when_default_differs(monkeypatch, tmp_path):
-    (tmp_path / "Manifest.toml").write_text('julia_version = "1.13.3"\n')
+    (tmp_path / "Manifest.toml").write_text('julia_version = "1.11.6"\n')
     monkeypatch.setenv("PATH", "/juliaup/bin")
     monkeypatch.setattr("ECOv003_L2T_STARS.julia_environment.find_juliaup", lambda: "/juliaup/bin/juliaup")
     monkeypatch.setattr("ECOv003_L2T_STARS.julia_environment.shutil.which",
                         lambda name, path=None: "/juliaup/bin/julia")
 
     def run(command, **kwargs):
-        version = "1.13.3" if "+1.13.3" in command else "1.12.3"
+        version = "1.11.6" if "+1.11.6" in command else "1.12.3"
         return subprocess.CompletedProcess(command, 0, f"julia version {version}\n", "")
 
     monkeypatch.setattr("ECOv003_L2T_STARS.julia_environment.subprocess.run", run)
-    assert find_julia_command(str(tmp_path)) == ["/juliaup/bin/julia", "+1.13.3"]
+    assert find_julia_command(str(tmp_path)) == ["/juliaup/bin/julia", "+1.11.6"]
 
 
 def test_find_julia_rejects_broken_launcher(monkeypatch, tmp_path):
-    (tmp_path / "Manifest.toml").write_text('julia_version = "1.13.3"\n')
+    (tmp_path / "Manifest.toml").write_text('julia_version = "1.11.6"\n')
     monkeypatch.setenv("PATH", "/juliaup/bin")
     monkeypatch.setattr("ECOv003_L2T_STARS.julia_environment.find_juliaup", lambda: "/juliaup/bin/juliaup")
     monkeypatch.setattr("ECOv003_L2T_STARS.julia_environment.shutil.which",
@@ -112,21 +112,21 @@ def test_juliaup_installer_uses_manifest_version(monkeypatch):
     monkeypatch.setattr(installer.subprocess, "run", run)
     monkeypatch.setattr(installer, "find_juliaup", lambda: "/home/user/.juliaup/bin/juliaup")
 
-    assert installer._install_juliaup("1.13.3") == "/home/user/.juliaup/bin/juliaup"
+    assert installer._install_juliaup("1.11.6") == "/home/user/.juliaup/bin/juliaup"
     assert run.call_args.args[0] == [
-        "sh", "-s", "--", "--yes", "--default-channel", "1.13.3", "--add-to-path=no"
+        "sh", "-s", "--", "--yes", "--default-channel", "1.11.6", "--add-to-path=no"
     ]
     assert run.call_args.kwargs["input"] == b"installer script"
 
 
 def test_manifest_requires_exact_julia_version(tmp_path):
-    (tmp_path / "Manifest.toml").write_text('julia_version = "1.13"\n')
+    (tmp_path / "Manifest.toml").write_text('julia_version = "1.11"\n')
     with pytest.raises(JuliaEnvironmentError, match="invalid julia_version"):
         manifest_julia_version(str(tmp_path))
 
 
 def test_install_julia_reports_instantiation_failure(monkeypatch):
-    monkeypatch.setattr(installer, "manifest_julia_version", lambda: "1.13.3")
+    monkeypatch.setattr(installer, "manifest_julia_version", lambda: "1.11.6")
     monkeypatch.setattr(installer, "find_julia_command", lambda: ["/bin/julia"])
     monkeypatch.setattr(installer, "_run", Mock(side_effect=JuliaEnvironmentError("Pkg failed")))
     verify = Mock()
@@ -138,15 +138,20 @@ def test_install_julia_reports_instantiation_failure(monkeypatch):
 
 @pytest.mark.skipif(os.name == "nt", reason="uses a POSIX executable")
 def test_install_julia_runs_real_subprocesses(monkeypatch, tmp_path):
+    version = manifest_julia_version()
     executable = tmp_path / "julia"
     commands = tmp_path / "commands"
     executable.write_text(
         '#!/bin/sh\n'
-        'if [ "$1" = "--version" ]; then echo "julia version 1.13.3"; exit; fi\n'
+        f'if [ "$1" = "--version" ]; then echo "julia version {version}"; exit; fi\n'
         'printf "%s\\n" "$*" >> "$JULIA_TEST_COMMANDS"\n'
     )
     executable.chmod(0o755)
-    monkeypatch.setenv("PATH", str(tmp_path))
+
+    # Prepend tmp_path so the mock 'julia' is found first without dropping system tools like /bin/sh
+    current_path = os.environ.get("PATH", "")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{current_path}")
+
     monkeypatch.setenv("JULIA_TEST_COMMANDS", str(commands))
     monkeypatch.setattr("ECOv003_L2T_STARS.julia_environment.find_juliaup", lambda: None)
 

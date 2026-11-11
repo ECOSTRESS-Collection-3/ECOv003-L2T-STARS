@@ -204,7 +204,7 @@ ECOv003_L2T_STARS.install_julia()
 ```
 
 The installer finds the exact Julia version recorded in the packaged `Manifest.toml`
-(currently 1.13.3). If necessary, it installs Juliaup and that Julia version, then
+(currently 1.11.6). If necessary, it installs Juliaup and that Julia version, then
 instantiates and precompiles the pinned Julia packages and checks the Julia imports.
 Repeat calls reuse an existing installation. This may download software and write to
 the user's Julia installation and depot; it does not change an existing Juliaup
