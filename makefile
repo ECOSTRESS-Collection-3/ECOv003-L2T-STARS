@@ -4,9 +4,10 @@ ENVIRONMENT_NAME = $(PACKAGE_NAME)
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
 PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.13)
 
-.PHONY: clean test smoke-test test-julia build twine-upload dist install-package install \
-        uninstall reinstall environment remove-environment install-julia \
-        resolve-julia julia-version colima-start docker-build docker-build-environment \
+.PHONY: clean test smoke-test smoke-test-python smoke-test-julia test-julia \
+        build twine-upload dist install-package install uninstall reinstall \
+        environment remove-environment install-julia resolve-julia \
+        julia-version colima-start docker-build docker-build-environment \
         docker-build-installation docker-interactive docker-remove
 
 # --- Cleaning and Maintenance ---
@@ -27,6 +28,14 @@ test:
 smoke-test:
 	@echo "Running smoke tests..."
 	ECOv003-L2T-STARS test
+
+smoke-test-python:
+	@echo "Running Python smoke tests..."
+	ECOv003-L2T-STARS test-python
+
+smoke-test-julia:
+	@echo "Running Julia smoke tests..."
+	ECOv003-L2T-STARS test-julia
 
 test-julia:
 	@echo "Testing Julia environment..."

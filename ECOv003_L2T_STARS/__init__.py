@@ -1,4 +1,4 @@
 from .version import __version__, __author__
 from .main import *
 from .ECOv003_DL import *
-from .smoke_test import test
+from .smoke_test import test, test_python, test_julia
