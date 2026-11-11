@@ -43,7 +43,7 @@ dist: clean build twine-upload
 
 install-package:
 	@echo "Installing package in development mode..."
-	pip install -e .[dev]
+	pip install --no-cache-dir --index-url https://pypi.org/simple -e '.[dev]'
 
 install: install-julia install-package
 	@echo "All installations complete."
