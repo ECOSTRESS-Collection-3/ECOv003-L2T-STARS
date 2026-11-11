@@ -3,6 +3,7 @@ PACKAGE_NAME = ECOv003-L2T-STARS
 ENVIRONMENT_NAME = $(PACKAGE_NAME)
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
 PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.13)
+JULIA_VERSION = $(if $(JULIA),$(JULIA),1.13.3)
 
 .PHONY: clean test smoke-test smoke-test-python smoke-test-julia test-julia \
         build twine-upload dist install-package install uninstall reinstall \
@@ -76,14 +77,21 @@ environment:
 
 remove-environment:
 	@echo "Removing mamba environment: $(ENVIRONMENT_NAME)..."
-	mamba env remove -y -n $(ENVIRONMENT_NAME)
+	mamba env remove -y -n $(ENVIRONMENT_NAME) || true
 
 install-julia:
+	@echo "Ensuring Julia $(JULIA_VERSION) is active..."
+	@if command -v juliaup >/dev/null 2>&1; then \
+		juliaup add $(JULIA_VERSION) 2>/dev/null || true; \
+		juliaup override set $(JULIA_VERSION); \
+	else \
+		julia -e 'if !startswith(string(VERSION), "$(JULIA_VERSION)") error("Expected Julia $(JULIA_VERSION) but found $$VERSION. Please update your active Julia version.") end'; \
+	fi
 	@echo "Installing pinned Julia packages from Manifest.toml..."
 	julia --project=ECOv003_L2T_STARS -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 
 julia-version:
-	@test -n "$(JULIA_VERSION)" || (echo "usage: make julia-version JULIA_VERSION=1.13"; exit 1)
+	@echo "Setting project Julia version to $(JULIA_VERSION)..."
 	python set_julia_version.py $(JULIA_VERSION)
 
 resolve-julia:
