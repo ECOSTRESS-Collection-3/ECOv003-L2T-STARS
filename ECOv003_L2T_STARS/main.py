@@ -1,13 +1,30 @@
-import sys
 import argparse
 import logging
+import sys
 
-from .version import __version__
+from .install_julia import install_julia
+
 from .constants import *
 from .L2T_STARS import L2T_STARS
+from .smoke_test import (
+    test as run_smoke_test,
+    test_julia as run_test_julia,
+    test_python as run_test_python,
+)
+from .version import __version__
 
 # Initialize the logger for the module
 logger = logging.getLogger(__name__)
+
+
+def _run_subtest(test_fn) -> int:
+    """Helper to run a sub-test function, print results, and return an exit code."""
+    failed = test_fn()
+    if failed:
+        print(f"\n{len(failed)} smoke test failure(s)")
+        return 1
+    print("\nSmoke tests passed")
+    return 0
 
 
 def main():
@@ -18,15 +35,32 @@ def main():
     providing a clear interface for users to specify the run-configuration file
     and other optional parameters.
     """
+    # Fast-dispatch test commands before runconfig validation
+    first_arg = sys.argv[1] if len(sys.argv) > 1 else None
+
+    if first_arg == "test":
+        sys.exit(run_smoke_test())
+    elif first_arg == "test-python":
+        sys.exit(_run_subtest(run_test_python))
+    elif first_arg == "test-julia":
+        sys.exit(_run_subtest(run_test_julia))
+    elif first_arg is "install-julia":
+        sys.exit(install_julia())
+
     parser = argparse.ArgumentParser(
         description="ECOSTRESS Collection 3 L2T_STARS PGE for generating Tiled Auxiliary NDVI and Albedo products.",
-        formatter_class=argparse.RawTextHelpFormatter, # Allows for more flexible help text formatting
+        formatter_class=argparse.RawTextHelpFormatter,  # Allows for more flexible help text formatting
         epilog=f"L2T_STARS PGE Version: {__version__}\n\n"
-               "Example usage:\n"
-               "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml\n"
-               "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --date 2023-01-15\n"
-               "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --sources-only\n"
-               "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --overwrite\n" # Added example usage
+        "Commands:\n"
+        "  test                 Run full Python and Julia smoke tests\n"
+        "  test-python          Run Python-only import and dummy tests\n"
+        "  test-julia           Run Julia-only smoke tests\n\n"
+        "Example usage:\n"
+        "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml\n"
+        "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --date 2023-01-15\n"
+        "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --sources-only\n"
+        "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --overwrite\n"
+        "  python {sys.argv[0]} test-python\n",
     )
 
     # Positional argument for the runconfig file
@@ -41,35 +75,35 @@ def main():
         "--date",
         type=str,
         help="Target UTC date for product generation (YYYY-MM-DD). Overrides date in runconfig.",
-        metavar="YYYY-MM-DD"
+        metavar="YYYY-MM-DD",
     )
     parser.add_argument(
         "--spinup-days",
         type=int,
         default=SPINUP_DAYS,
         help=f"Number of days for the VIIRS time-series spin-up. Defaults to {SPINUP_DAYS} days.",
-        metavar="DAYS"
+        metavar="DAYS",
     )
     parser.add_argument(
         "--target-resolution",
         type=int,
         default=TARGET_RESOLUTION,
         help=f"Desired output product resolution in meters. Defaults to {TARGET_RESOLUTION}m.",
-        metavar="METERS"
+        metavar="METERS",
     )
     parser.add_argument(
         "--ndvi-resolution",
         type=int,
         default=NDVI_RESOLUTION,
         help=f"Resolution of coarse NDVI data in meters. Defaults to {NDVI_RESOLUTION}m.",
-        metavar="METERS"
+        metavar="METERS",
     )
     parser.add_argument(
         "--albedo-resolution",
         type=int,
         default=ALBEDO_RESOLUTION,
         help=f"Resolution of coarse albedo data in meters. Defaults to {ALBEDO_RESOLUTION}m.",
-        metavar="METERS"
+        metavar="METERS",
     )
     parser.add_argument(
         "--viirs-mission-priority",
@@ -126,20 +160,21 @@ def main():
         type=str,
         default="auto",
         help='Number of Julia threads to use, or "auto". Defaults to "auto".',
-        metavar="COUNT"
+        metavar="COUNT",
     )
     parser.add_argument(
         "--num-workers",
         type=int,
         default=4,
-        help=f"Number of Julia workers for distributed processing. Defaults to 4.",
-        metavar="COUNT"
+        help="Number of Julia workers for distributed processing. Defaults to 4.",
+        metavar="COUNT",
     )
     parser.add_argument(
-        "--overwrite", # New argument for overwrite option
+        "--overwrite",
         action="store_true",
         help="Reproduce the output files even if they already exist.",
     )
+
     parser.add_argument(
         "--version",
         action="version",
@@ -166,7 +201,7 @@ def main():
         initialize_julia=args.initialize_julia,
         threads=args.threads,
         num_workers=args.num_workers,
-        overwrite=args.overwrite, # Pass the new overwrite argument
+        overwrite=args.overwrite,
     )
 
     sys.exit(exit_code)

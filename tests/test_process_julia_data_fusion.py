@@ -25,6 +25,15 @@ for module in missing_modules:
 from ECOv003_L2T_STARS.process_julia_data_fusion import process_julia_data_fusion
 
 
+@pytest.fixture(autouse=True)
+def julia_command():
+    with patch(
+        'ECOv003_L2T_STARS.process_julia_data_fusion.find_julia_command',
+        return_value=['julia', '+1.13.3'],
+    ):
+        yield
+
+
 class TestProcessJuliaDataFusion:
     """Tests for the process_julia_data_fusion function."""
     

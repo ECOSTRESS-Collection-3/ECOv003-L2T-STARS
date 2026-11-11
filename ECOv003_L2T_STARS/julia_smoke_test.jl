@@ -41,3 +41,7 @@ if !isempty(failures)
     exit(1)
 end
 println("\nAll Julia imports succeeded")
+
+@assert Dates.Date("2000-01-01") == Dates.Date(2000, 1, 1)
+@assert LinearAlgebra.dot([1.0], [2.0]) == 2.0
+println("Julia dummy calls succeeded")

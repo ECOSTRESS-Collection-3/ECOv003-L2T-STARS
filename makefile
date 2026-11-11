@@ -4,10 +4,12 @@ ENVIRONMENT_NAME = $(PACKAGE_NAME)
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
 PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.13)
 JULIA_VERSION = $(if $(JULIA),$(JULIA),1.13.3)
+JULIA_PROJECT_NAME = $(if $(JULIA_PROJECT),$(JULIA_PROJECT),$(subst -,_,$(PACKAGE_NAME)))
 
-.PHONY: clean test test-julia build twine-upload dist install-package install \
-        uninstall reinstall environment remove-environment install-julia \
-        resolve-julia julia-version colima-start docker-build docker-build-environment \
+.PHONY: clean test smoke-test smoke-test-python smoke-test-julia test-julia \
+        build twine-upload dist install-package install uninstall reinstall \
+        environment remove-environment install-julia resolve-julia \
+        julia-version colima-start docker-build docker-build-environment \
         docker-build-installation docker-interactive docker-remove
 
 # --- Cleaning and Maintenance ---
@@ -25,9 +27,21 @@ test:
 	@echo "Running Python test suite..."
 	PYTHONPATH=. pytest
 
+smoke-test:
+	@echo "Running smoke tests..."
+	$(PACKAGE_NAME) test
+
+smoke-test-python:
+	@echo "Running Python smoke tests..."
+	$(PACKAGE_NAME) test-python
+
+smoke-test-julia:
+	@echo "Running Julia smoke tests..."
+	$(PACKAGE_NAME) test-julia
+
 test-julia:
 	@echo "Testing Julia environment..."
-	julia --project=ECOv003_L2T_STARS ECOv003_L2T_STARS/julia_smoke_test.jl ECOv003_L2T_STARS/process_ECOSTRESS_data_fusion_distributed_bias.jl
+	julia --project=$(JULIA_PROJECT_NAME) $(JULIA_PROJECT_NAME)/julia_smoke_test.jl $(JULIA_PROJECT_NAME)/process_ECOSTRESS_data_fusion_distributed_bias.jl
 
 # --- Package Management ---
 
@@ -75,7 +89,7 @@ install-julia:
 		julia -e 'if !startswith(string(VERSION), "$(JULIA_VERSION)") error("Expected Julia $(JULIA_VERSION) but found $$VERSION. Please update your active Julia version.") end'; \
 	fi
 	@echo "Installing pinned Julia packages from Manifest.toml..."
-	julia --project=ECOv003_L2T_STARS -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+	julia --project=$(JULIA_PROJECT_NAME) -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 
 julia-version:
 	@echo "Setting project Julia version to $(JULIA_VERSION)..."
@@ -83,7 +97,7 @@ julia-version:
 
 resolve-julia:
 	@echo "Resolving Julia dependencies and updating Manifest.toml..."
-	julia --project=ECOv003_L2T_STARS -e 'using Pkg; Pkg.resolve(); Pkg.precompile()'
+	julia --project=$(JULIA_PROJECT_NAME) -e 'using Pkg; Pkg.resolve(); Pkg.precompile()'
 
 # --- Docker & Colima ---
 
