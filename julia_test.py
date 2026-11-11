@@ -67,7 +67,15 @@ def run_julia_fusion(repo_root: Path) -> None:
     print("=" * 96)
     print(f"Executing STARS Data Fusion in: {repo_root}")
     print("=" * 96)
-    subprocess.run(cmd, cwd=repo_root, check=True)
+    
+    # Create a copy of the environment and strip out dynamic linker overrides
+    clean_env = os.environ.copy()
+    clean_env.pop("DYLD_LIBRARY_PATH", None)
+    clean_env.pop("DYLD_FALLBACK_LIBRARY_PATH", None)
+    clean_env.pop("LD_LIBRARY_PATH", None)
+    
+    # Execute the command with the sanitized environment
+    subprocess.run(cmd, cwd=repo_root, check=True, env=clean_env)
     print("\nJulia process finished with exit status 0.\n")
 
 
