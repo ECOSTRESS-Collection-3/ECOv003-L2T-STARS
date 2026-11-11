@@ -1,50 +1,6 @@
 # ==============================================================================
 # DEBUG SCRIPT: GDALDriver::Create() Failure in STARS L2T Fusion Pipeline
 # ==============================================================================
-#
-# CONTEXT & ROOT CAUSE ANALYSIS:
-# ------------------------------
-# 1. Pipeline Failure:
-#    - Python orchestrator (L2T_STARS.py -> process_STARS_product.py:284) expects:
-#      /Users/halverso/data/ECOv003_testing/L2T_STARS_MODEL/11SPS/2026-10-10/STARS_NDVI_2026-10-10_11SPS_70m.tif
-#    - Downstream fails with: `OSError: raster file not found` because the upstream
-#      Julia step crashed before the file could be written to disk.
-#
-# 2. Originating Julia Stacktrace:
-#    - File: process_ECOSTRESS_data_fusion_distributed_bias.jl, line 404
-#    - Error: GDALError (CE_Failure, code 6):
-#             GDALDriver::Create() ... no create method implemented for this format.
-#    - Call Path:
-#        Rasters.write(filename, raster; force=true)
-#          -> RastersArchGDALExt._create_with_driver(...)
-#          -> ArchGDAL.create(f, args...; driver, options, width, height, nbands, dtype)
-#          -> ArchGDAL.gdalcreatecopy / GDAL.GDALCreateCopy
-#          -> GDALDriver::Create() throws CE_Failure (code 6)
-#
-# 3. Known Root Causes & Diagnostic Angles:
-#    - Cause A: Driver Inference Fallback
-#      Rasters.jl attempts to infer the driver from ".tif". If driver detection
-#      resolves to an incorrect driver or an in-memory/read-only driver (or leaves
-#      it ambiguous), GDAL falls back to a driver that lacks direct `Create` support
-#      (only supporting `CreateCopy` or read operations).
-#    - Cause B: Mamba / Conda vs. Julia GDAL_jll Dylib Pollution
-#      The parent workflow runs under a Mamba environment:
-#      `/Users/halverso/.local/share/mamba/envs/ECOv003-L2T-STARS/`
-#      If Conda/Mamba exports GDAL_DATA, GDAL_DRIVER_PATH, or library search paths
-#      into the process environment, Julia's `GDAL_jll` may load incompatible dynamic
-#      driver plugins or fail internal driver registrations on macOS (DYLD path conflicts).
-#    - Cause C: Data Type / Band Mismatch in Template Creation
-#      `raster` is a 3D Float64 array with dimensions (X, Y, Band(1:1)), where X and Y
-#      contain Projected coordinates and WKT CRS metadata. If the memory template dataset
-#      cannot be instantiated with direct `Create()`, `CreateCopy()` must be used.
-#
-# POTENTIAL WORKAROUNDS & FIXES:
-# ------------------------------
-# - Solution 1: Explicitly pass `driver="GTiff"` to `Rasters.write(...)`.
-# - Solution 2: Clear inherited GDAL / PROJ environment variables before calling Julia.
-# - Solution 3: Direct write using `ArchGDAL.create` or `ArchGDAL.copy` if `Rasters.write`
-#   remains blocked by the internal `RastersArchGDALExt` driver dispatch logic.
-# ==============================================================================
 
 using Rasters
 import ArchGDAL
@@ -62,20 +18,13 @@ end
 
 println("\nInspecting GTiff Driver Capabilities:")
 gtiff = ArchGDAL.getdriver("GTiff")
-dcap_create     = ArchGDAL.metadata(gtiff, "DCAP_CREATE")
-dcap_createcopy = ArchGDAL.metadata(gtiff, "DCAP_CREATECOPY")
+dcap_create     = ArchGDAL.metadataitem(gtiff, "DCAP_CREATE")
+dcap_createcopy = ArchGDAL.metadataitem(gtiff, "DCAP_CREATECOPY")
 
 println("  Driver Short Name:          ", ArchGDAL.shortname(gtiff))
 println("  Driver Long Name:           ", ArchGDAL.longname(gtiff))
 println("  Supports DCAP_CREATE:       ", dcap_create == "YES" ? "YES (Direct Create supported)" : "NO ($dcap_create)")
 println("  Supports DCAP_CREATECOPY:   ", dcap_createcopy == "YES" ? "YES (CreateCopy supported)" : "NO ($dcap_createcopy)")
-
-# Check driver inference on target file pattern
-test_path = "STARS_NDVI_2026-10-10_11SPS_70m.tif"
-identified_driver = ArchGDAL.identifydriver(test_path)
-println("\nDriver Inference Check:")
-println("  Filename:                   ", test_path)
-println("  Resolved Driver:            ", ArchGDAL.shortname(identified_driver))
 
 println("\n" * "="^70)
 println("2. PREPARING REPRODUCTION DATASET (MATCHING LINE 404 STACKTRACE)")
@@ -119,7 +68,7 @@ mktempdir() do dir
             output_b, 
             raster; 
             driver="GTiff",
-            options=["COMPRESS=DEFLATE", "TILED=YES"],
+            options=Dict("COMPRESS" => "DEFLATE", "TILED" => "YES"),
             force=true
         )
         @info "✓ Test B succeeded: Explicit driver solves the issue."
@@ -143,7 +92,8 @@ mktempdir() do dir
             dtype=Float64
         ) do ds
             band = ArchGDAL.getband(ds, 1)
-            ArchGDAL.write!(band, raster[:, :, 1])
+            # Use parent() to pass the raw matrix rather than the Raster object
+            ArchGDAL.write!(band, parent(raster[:, :, 1]))
         end
         @info "✓ Test C succeeded: Direct ArchGDAL write bypassed the error."
     catch e
