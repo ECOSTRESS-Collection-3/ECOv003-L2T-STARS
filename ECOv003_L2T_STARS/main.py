@@ -5,6 +5,7 @@ import logging
 from .version import __version__
 from .constants import *
 from .L2T_STARS import L2T_STARS
+from .smoke_test import test as run_smoke_test
 
 # Initialize the logger for the module
 logger = logging.getLogger(__name__)
@@ -18,6 +19,9 @@ def main():
     providing a clear interface for users to specify the run-configuration file
     and other optional parameters.
     """
+    if sys.argv[1:2] == ["test"]:
+        sys.exit(run_smoke_test())
+
     parser = argparse.ArgumentParser(
         description="ECOSTRESS Collection 3 L2T_STARS PGE for generating Tiled Auxiliary NDVI and Albedo products.",
         formatter_class=argparse.RawTextHelpFormatter, # Allows for more flexible help text formatting
@@ -136,10 +140,11 @@ def main():
         metavar="COUNT"
     )
     parser.add_argument(
-        "--overwrite", # New argument for overwrite option
+        "--overwrite",
         action="store_true",
         help="Reproduce the output files even if they already exist.",
     )
+
     parser.add_argument(
         "--version",
         action="version",
