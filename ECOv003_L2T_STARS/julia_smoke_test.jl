@@ -9,7 +9,6 @@ const ROOT = @__DIR__
 function find_scripts(root)
     scripts = String[]
     for (dir, _, files) in walkdir(root)
-        occursin("VNP43NRT_jl", dir) && continue  # module source is covered by `using VNP43NRT`
         for f in files
             endswith(f, ".jl") && push!(scripts, joinpath(dir, f))
         end

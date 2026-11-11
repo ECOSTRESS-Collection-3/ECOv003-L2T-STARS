@@ -1,7 +1,5 @@
-from datetime import date
+from datetime import date, timedelta
 import logging
-
-from dateutil.rrule import rrule, DAILY
 
 from rasters import RasterGeometry
 
@@ -19,8 +17,7 @@ from harmonized_landsat_sentinel import (
 
 from ECOv003_exit_codes import *
 
-from .daterange import get_date
-from .VNP43NRT import VNP43NRT
+from VCD43NRT import VCD43NRT
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +29,7 @@ def retrieve_STARS_sources(
     VIIRS_start_date: date,
     VIIRS_end_date: date,
     HLS_connection: HLS2Connection,
-    VIIRS_connection: VNP43NRT):
+    VCD43NRT_connection: VCD43NRT):
     """
     Retrieves necessary Harmonized Landsat Sentinel (HLS) and VIIRS source data.
 
@@ -48,8 +45,7 @@ def retrieve_STARS_sources(
         VIIRS_start_date (date): The start date for VIIRS data retrieval.
         VIIRS_end_date (date): The end date for VIIRS data retrieval.
         HLS_connection (HLS2Connection): An initialized HLS data connection object.
-        VIIRS_connection (VNP43NRT): An initialized VIIRS data connection object
-                                      (can be VNP43NRT, VNP43IA4, or VNP43MA3).
+        VCD43NRT_connection (VCD43NRT): An initialized VIIRS processing connection.
 
     Raises:
         DownloadFailed: If an HLS download fails.
@@ -59,9 +55,8 @@ def retrieve_STARS_sources(
         f"Retrieving HLS sources for tile {cl.place(tile)} from {cl.time(HLS_start_date)} to {cl.time(HLS_end_date)}"
     )
     # Iterate through each day in the HLS date range to retrieve Sentinel and Landsat data
-    for processing_date in [
-        get_date(dt) for dt in rrule(DAILY, dtstart=HLS_start_date, until=HLS_end_date)
-    ]:
+    for day_offset in range((HLS_end_date - HLS_start_date).days + 1):
+        processing_date = HLS_start_date + timedelta(days=day_offset)
         try:
             logger.info(
                 f"Retrieving HLS Sentinel at tile {cl.place(tile)} on date {cl.time(processing_date)}"
@@ -93,7 +88,7 @@ def retrieve_STARS_sources(
         f"Retrieving VIIRS sources for tile {cl.place(tile)} from {cl.time(VIIRS_start_date)} to {cl.time(VIIRS_end_date)}"
     )
     # Prefetch VNP09GA data for the specified VIIRS date range and geometry
-    VIIRS_connection.prefetch_VNP09GA(
+    VCD43NRT_connection.prefetch_VNP09GA(
         start_date=VIIRS_start_date,
         end_date=VIIRS_end_date,
         geometry=geometry,

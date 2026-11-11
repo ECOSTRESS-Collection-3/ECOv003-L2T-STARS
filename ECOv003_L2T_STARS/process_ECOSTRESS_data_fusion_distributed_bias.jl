@@ -10,6 +10,7 @@ using STARSDataFusion.VNP43
 using Logging
 using Statistics
 using Distributed
+using ArchGDAL
 
 @info "processing STARS data fusion"
 
@@ -176,17 +177,15 @@ n_eff = compute_n_eff(Int(round(coarse_cell_size / fine_cell_size)), 2, smoothne
 sp_var = fast_var_est(covariance_images, n_eff_agg = n_eff)
 
 coarse_images = []
-coarse_dates = Vector{Date}(undef,0)
+coarse_dates = Vector{Date}(undef, 0)
 
-tk=1
+tk = 1
 for (i, date) in enumerate(dates)
     date = Dates.format(date, dateformat"yyyy-mm-dd")
     matched = findfirst(x -> occursin(date, x), coarse_image_filenames)
 
     if matched === nothing
         @info "coarse image is not available on $(date)"
-        # coarse_image = Raster(fill(NaN, x_coarse_size, y_coarse_size, 1), dims=timestep_dims, missingval=NaN)
-        # @info size(coarse_image)
     else
         timestep_index = Band(tk:tk)
         timestep_dims = (x_coarse, y_coarse, timestep_index)
@@ -212,17 +211,15 @@ else
 end
 
 fine_images = []
-fine_dates = Vector{Date}(undef,0)
+fine_dates = Vector{Date}(undef, 0)
 
-tk=1
+tk = 1
 for (i, date) in enumerate(dates)
     date = Dates.format(date, dateformat"yyyy-mm-dd")
     match = findfirst(x -> occursin(date, x), fine_image_filenames)
 
     if match === nothing
         @info "fine image is not available on $(date)"
-        # fine_image = Raster(fill(NaN, x_fine_size, y_fine_size, 1), dims=timestep_dims, missingval=NaN)
-        # @info size(fine_image)
     else
         timestep_index = Band(tk:tk)
         timestep_dims = (x_fine, y_fine, timestep_index)
@@ -252,8 +249,8 @@ target_date = dates[end]
 target_time = length(dates)
 
 ## 0, 1 mask
-fine_pixels = sum(.!isnan.(fine_images),dims=3)
-if sum(fine_pixels.==0) > 0
+fine_pixels = sum(.!isnan.(fine_images), dims=3)
+if sum(fine_pixels .== 0) > 0
     if fine_flag_start_date < fine_start_date
         flag_dates = [fine_flag_start_date + Day(d - 1) for d in 1:((fine_start_date - Day(1) - fine_flag_start_date).value + 1)]
         tf = Ti(flag_dates)
@@ -272,34 +269,34 @@ if sum(fine_pixels.==0) > 0
                 fine_image = Raster(reshape(Raster(filename), x_fine_size, y_fine_size, 1), dims=timestep_dims, missingval=NaN)
                 replace!(fine_image, missing => NaN)
 
-                fine_pixels .+= sum(.!isnan.(fine_image),dims=3)
+                fine_pixels .+= sum(.!isnan.(fine_image), dims=3)
             end
         end
     end
 end
 
-hls_flag = Array(fine_pixels[:,:,1] .== 0)
+hls_flag = Array(fine_pixels[:, :, 1] .== 0)
 
 ### nan pixels with no historical data 
 if isnothing(prior_mean)
     prior_flag = trues(size(fine_images)[1:2])
-    fine_obs = sum(.!isnan.(fine_images),dims=3) 
+    fine_obs = sum(.!isnan.(fine_images), dims=3) 
     ## uncomment to keep viirs-only pixels 
-    if sum(fine_obs.==0) > 0
-        coarse_nans = resample(sum(.!isnan.(coarse_images),dims=3), to=fine_images[:,:,1], method=:near)
-        prior_flag[coarse_nans[:,:,1] .> 0] .= false
+    if sum(fine_obs .== 0) > 0
+        coarse_nans = resample(sum(.!isnan.(coarse_images), dims=3), to=fine_images[:, :, 1], method=:near)
+        prior_flag[coarse_nans[:, :, 1] .> 0] .= false
     end
 
-    prior_flag[fine_pixels[:,:,1] .> 0] .= false
+    prior_flag[fine_pixels[:, :, 1] .> 0] .= false
 elseif sum(isnan.(prior_mean)) .> 0
-    prior_flag = isnan.(prior_mean[:,:,1]) .> 0
-    fine_obs = sum(.!isnan.(fine_images),dims=3) 
+    prior_flag = isnan.(prior_mean[:, :, 1]) .> 0
+    fine_obs = sum(.!isnan.(fine_images), dims=3) 
     ## uncomment to keep viirs-only pixels 
-    if sum(fine_obs.==0) > 0
-        coarse_nans = resample(sum(.!isnan.(coarse_images),dims=3), to=fine_images[:,:,1], method=:near)
-        prior_flag[coarse_nans[:,:,1] .> 0] .= false
+    if sum(fine_obs .== 0) > 0
+        coarse_nans = resample(sum(.!isnan.(coarse_images), dims=3), to=fine_images[:, :, 1], method=:near)
+        prior_flag[coarse_nans[:, :, 1] .> 0] .= false
     end
-    prior_flag[fine_pixels[:,:,1] .> 0] .= false
+    prior_flag[fine_pixels[:, :, 1] .> 0] .= false
 else
     prior_flag = falses(size(fine_images)[1:2])  
 end
@@ -324,24 +321,25 @@ fine_geodata = STARSInstrumentGeoData(fine_origin, fine_csize, fine_ndims, 0, fi
 coarse_geodata = STARSInstrumentGeoData(coarse_origin, coarse_csize, coarse_ndims, 2, coarse_times)
 
 fine_data = STARSInstrumentData(fine_array, 0.0, 1e-6, false, nothing, abs.(fine_csize), fine_times, [1. 1.])
-coarse_data = STARSInstrumentData(coarse_array, 0.0, 1e-6, true, [1.0,1e-6], abs.(coarse_csize), coarse_times, [1. 1.])
+coarse_data = STARSInstrumentData(coarse_array, 0.0, 1e-6, true, [1.0, 1e-6], abs.(coarse_csize), coarse_times, [1. 1.])
 
-nsamp=100
+nsamp = 100
 window_buffer = 4 ## set these differently for NDVI and albedo?
 
 cov_pars = ones((size(fine_images)[1], size(fine_images)[2], 4))
 
-sp_rs = resample(log.(sqrt.(sp_var[:,:,1])); to=fine_images[:,:,1], size=size(fine_images)[1:2], method=:cubicspline)
+sp_rs = resample(log.(sqrt.(sp_var[:, :, 1])); to=fine_images[:, :, 1], size=size(fine_images)[1:2], method=:cubicspline)
 sp_rs[isnan.(sp_rs)] .= nanmean(sp_rs) ### the resampling won't go outside extent
 
-cov_pars[:,:,1] = Array{Float64}(exp.(sp_rs))
-cov_pars[:,:,2] .= coarse_cell_size
-# cov_pars[:,:,2] .= 200.0
-cov_pars[:,:,3] .= 1e-10
-cov_pars[:,:,4] .= 0.5
+cov_pars[:, :, 1] = Array{Float64}(exp.(sp_rs))
+cov_pars[:, :, 2] .= coarse_cell_size
+# cov_pars[:, :, 2] .= 200.0
+cov_pars[:, :, 3] .= 1e-10
+cov_pars[:, :, 4] .= 0.5
 
 if isnothing(prior_mean)
-    fused_images, fused_sd_images, fused_bias_images, fused_bias_sd_images = coarse_fine_scene_fusion_cbias_pmap(fine_data,
+    fused_images, fused_sd_images, fused_bias_images, fused_bias_sd_images = coarse_fine_scene_fusion_cbias_pmap(
+        fine_data,
         coarse_data,
         fine_geodata, 
         coarse_geodata,
@@ -357,7 +355,8 @@ if isnothing(prior_mean)
         obs_operator = unif_weighted_obs_operator_centroid,
         state_in_cov = false,
         cov_wt = 0.2,
-        nb_coarse = 2.0);
+        nb_coarse = 2.0
+    );
 else
     ## fill in prior mean with mean prior
     nkp = isnan.(prior_mean)
@@ -366,7 +365,8 @@ else
         prior_mean[nkp] .= mp
     end
 
-    fused_images, fused_sd_images, fused_bias_images, fused_bias_sd_images = coarse_fine_scene_fusion_cbias_pmap(fine_data,
+    fused_images, fused_sd_images, fused_bias_images, fused_bias_sd_images = coarse_fine_scene_fusion_cbias_pmap(
+        fine_data,
         coarse_data,
         fine_geodata, 
         coarse_geodata,
@@ -382,7 +382,8 @@ else
         obs_operator = unif_weighted_obs_operator_centroid,
         state_in_cov = false,
         cov_wt = 0.2,
-        nb_coarse = 2.0);
+        nb_coarse = 2.0
+    );
 end;
 
 ## remove workers
@@ -394,20 +395,62 @@ else
     clamp!(fused_images, 0, 1) # albedo clipped to [0,1]
 end
 
-dd = fused_images[:,:,:]
-dd[prior_flag,:] .= NaN # set no data to NaN
+dd = fused_images[:, :, :]
+dd[prior_flag, :] .= NaN # set no data to NaN
 
-fused_raster = Raster(dd, dims=(x_fine, y_fine, Band(1:1)), missingval=NaN)
-flag_raster = Raster(Int.(hls_flag), dims=(x_fine, y_fine), missingval=NaN)
+# --- ROBUST GEOTIFF WRITER ---
+# Helper function that clones spatial reference and transforms directly from template GeoTIFFs
+function safe_write_geotiff(output_filename::String, template_filename::String, matrix_data::AbstractMatrix, nodata_val)
+    mkpath(dirname(output_filename))
+    
+    ArchGDAL.read(template_filename) do template_ds
+        driver = ArchGDAL.getdriver("GTiff")
+        gt = ArchGDAL.getgeotransform(template_ds)
+        proj = ArchGDAL.getproj(template_ds)
+        
+        # ArchGDAL expects dims as (width=cols, height=rows)
+        w, h = size(matrix_data, 1), size(matrix_data, 2)
+        dtype = eltype(matrix_data)
+        
+        creation_options = ["COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"]
+        
+        ArchGDAL.create(output_filename; driver=driver, width=w, height=h, nbands=1, dtype=dtype, options=creation_options) do target_ds
+            ArchGDAL.setgeotransform!(target_ds, gt)
+            ArchGDAL.setproj!(target_ds, proj)
+            band = ArchGDAL.getband(target_ds, 1)
+            ArchGDAL.setnodatavalue!(band, nodata_val)
+            ArchGDAL.write!(band, matrix_data)
+        end
+    end
+end
+
+# Identify reliable template files for projection and bounds cloning
+fine_template = if !isempty(fine_image_filenames)
+    fine_image_filenames[1]
+elseif ispath(posterior_filename)
+    posterior_filename
+else
+    # Fallback to the first existing file in downsampled_directory matching fine_cell_size
+    first(glob("*_$(fine_cell_size)m.tif", downsampled_directory))
+end
+
+coarse_template = if !isempty(coarse_image_filenames)
+    coarse_image_filenames[1]
+else
+    first(glob("*_$(coarse_cell_size)m.tif", downsampled_directory))
+end
 
 @info "writing fused mean: $(posterior_filename)"
-write(posterior_filename, fused_raster, force=true)
-@info "writing fused flag: $(posterior_flag_filename)"
-write(posterior_flag_filename, flag_raster, force=true)
-@info "writing fused SD: $(posterior_UQ_filename)"
-write(posterior_UQ_filename, Raster(fused_sd_images, dims=(x_fine, y_fine, Band(1:1)), missingval=NaN), force=true)
-@info "writing bias mean: $(posterior_bias_filename)"
-write(posterior_bias_filename, Raster(fused_bias_images, dims=(x_coarse, y_coarse, Band(1:1)), missingval=NaN), force=true)
-@info "writing bias SD: $(posterior_bias_UQ_filename)"
-write(posterior_bias_UQ_filename, Raster(fused_bias_sd_images, dims=(x_coarse, y_coarse, Band(1:1)), missingval=NaN), force=true)
+safe_write_geotiff(posterior_filename, fine_template, Float32.(dd[:, :, 1]), NaN32)
 
+@info "writing fused flag: $(posterior_flag_filename)"
+safe_write_geotiff(posterior_flag_filename, fine_template, Int32.(hls_flag), Int32(-9999))
+
+@info "writing fused SD: $(posterior_UQ_filename)"
+safe_write_geotiff(posterior_UQ_filename, fine_template, Float32.(fused_sd_images[:, :, 1]), NaN32)
+
+@info "writing bias mean: $(posterior_bias_filename)"
+safe_write_geotiff(posterior_bias_filename, coarse_template, Float32.(fused_bias_images[:, :, 1]), NaN32)
+
+@info "writing bias SD: $(posterior_bias_UQ_filename)"
+safe_write_geotiff(posterior_bias_UQ_filename, coarse_template, Float32.(fused_bias_sd_images[:, :, 1]), NaN32)

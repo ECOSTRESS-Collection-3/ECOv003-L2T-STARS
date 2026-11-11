@@ -135,7 +135,7 @@ The ECOSTRESS Collection 3 Level-2 STARS NDVI & Albedo product (L2T_STARS) provi
 
 These products are generated using the **Spatial Timeseries for Automated high-Resolution multi-Sensor data fusion (STARS)** algorithm, which optimally combines:
 - **High spatial resolution** data from Harmonized Landsat Sentinel (HLS) 2.0 products (30 m, 3-5 day revisit)
-- **High temporal resolution** data from VIIRS VNP09GA products (500 m-1 km, daily coverage)
+- **High temporal resolution** daily VIIRS surface-reflectance data (SNPP VNP09GA, JPSS-1 VJ109GA, or JPSS-2 VJ209GA; 500 m-1 km)
 
 The result is gap-filled, analysis-ready NDVI and albedo data at ECOSTRESS resolution with quantified uncertainties, essential for evapotranspiration modeling and land surface analysis.
 
@@ -508,7 +508,7 @@ products at each orbit/scene, as listed in Table 3.
 We would like to thank Joshua Fisher as the initial science lead of the
 ECOSTRESS mission and PI of the ROSES project to re-design the ECOSTRESS products.
 
-We would like to thank the HLS and VIIRS teams for providing the input data products that make STARS data fusion possible.
+We would like to thank the HLS and VIIRS teams for providing the input data products that make STARS data fusion possible, including the JPSS mission teams.
 
 We would like to thank the entire ECOSTRESS Science Team for their contributions to algorithm development and product validation.
 

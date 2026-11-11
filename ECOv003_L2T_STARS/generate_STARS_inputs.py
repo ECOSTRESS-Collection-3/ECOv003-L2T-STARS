@@ -1,25 +1,23 @@
 from typing import Union
-from datetime import date, datetime
-from dateutil.rrule import rrule, DAILY
+from datetime import date, datetime, timedelta
 from os.path import exists
 import logging
 
 import colored_logging as cl
 from rasters import Raster, RasterGeometry
 from harmonized_landsat_sentinel import HLS2Connection
+from VCD43NRT import VCD43NRT
 
 from ECOv003_exit_codes import AuxiliaryLatency
 
 from .constants import VIIRS_GIVEUP_DAYS
 from .generate_filename import generate_filename
-from .daterange import get_date
 from .generate_NDVI_coarse_image import generate_NDVI_coarse_image
 from .generate_NDVI_fine_image import generate_NDVI_fine_image
 from .generate_albedo_coarse_image import generate_albedo_coarse_image
 from .generate_albedo_fine_image import generate_albedo_fine_image
 from .generate_downsampled_filename import generate_downsampled_filename
 from .calibrate_fine_to_coarse import calibrate_fine_to_coarse
-from .VIIRS.VIIRSDownloader import VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +35,8 @@ def generate_STARS_inputs(
     albedo_coarse_geometry: RasterGeometry,
     downsampled_directory: str,
     HLS_connection: HLS2Connection,
-    NDVI_VIIRS_connection: VIIRSDownloaderNDVI,
-    albedo_VIIRS_connection: VIIRSDownloaderAlbedo,
+    NDVI_VCD43NRT_connection: VCD43NRT,
+    albedo_VCD43NRT_connection: VCD43NRT,
     calibrate_fine: bool = False,
 ):
     """
@@ -68,8 +66,8 @@ def generate_STARS_inputs(
         albedo_coarse_directory (str): Directory for staging coarse albedo images.
         albedo_fine_directory (str): Directory for staging fine albedo images.
         HLS_connection (HLS2Connection): An initialized HLS data connection object.
-        NDVI_VIIRS_connection (VIIRSDownloaderNDVI): An initialized VIIRS NDVI downloader.
-        albedo_VIIRS_connection (VIIRSDownloaderAlbedo): An initialized VIIRS albedo downloader.
+        NDVI_VCD43NRT_connection (VCD43NRT): An initialized VIIRS processor.
+        albedo_VCD43NRT_connection (VCD43NRT): An initialized VIIRS processor.
         calibrate_fine (bool, optional): If True, calibrate fine images to coarse images.
                                          Defaults to False.
 
@@ -81,9 +79,8 @@ def generate_STARS_inputs(
     logger.info(f"preparing coarse and fine images for STARS at {cl.place(tile)}")
 
     # Process each day within the VIIRS data fusion window
-    for processing_date in [
-        get_date(dt) for dt in rrule(DAILY, dtstart=VIIRS_start_date, until=VIIRS_end_date)
-    ]:
+    for day_offset in range((VIIRS_end_date - VIIRS_start_date).days + 1):
+        processing_date = VIIRS_start_date + timedelta(days=day_offset)
         NDVI_coarse_filename = generate_downsampled_filename(
             directory=downsampled_directory,
             variable="NDVI",
@@ -124,7 +121,7 @@ def generate_STARS_inputs(
 
                 NDVI_coarse_image = generate_NDVI_coarse_image(
                     date_UTC=processing_date,
-                    VIIRS_connection=NDVI_VIIRS_connection,
+                    VCD43NRT_connection=NDVI_VCD43NRT_connection,
                     geometry=NDVI_coarse_geometry
                 )
 
@@ -174,7 +171,7 @@ def generate_STARS_inputs(
 
                 albedo_coarse_image = generate_albedo_coarse_image(
                     date_UTC=processing_date,
-                    VIIRS_connection=albedo_VIIRS_connection,
+                    VCD43NRT_connection=albedo_VCD43NRT_connection,
                     geometry=albedo_coarse_geometry
                 )
 
