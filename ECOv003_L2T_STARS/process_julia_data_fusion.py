@@ -5,7 +5,8 @@ from os.path import abspath, dirname, join, exists
 import os
 import logging
 
-from .instantiate_STARSDataFusion_jl import instantiate_STARSDataFusion_jl
+from .install_julia import install_julia
+from .julia_environment import find_julia_command
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ def process_julia_data_fusion(
 
     # Instantiate Julia dependencies
     if initialize_julia:
-        instantiate_STARSDataFusion_jl(STARS_source_directory)
+        install_julia()
 
     # Set up the environment for the julia script
     # IMPORTANT: Create a COPY of os.environ to avoid modifying system-level environment variables.
@@ -89,7 +90,7 @@ def process_julia_data_fusion(
 
     # Base Julia command with required arguments
     command = [
-        "julia", f"--project={STARS_source_directory}", "--threads", f"{threads}", julia_script_filename,
+        *find_julia_command(STARS_source_directory), f"--project={STARS_source_directory}", "--threads", f"{threads}", julia_script_filename,
         f"{num_workers}",
         tile,
         f"{coarse_cell_size}", f"{fine_cell_size}",
@@ -123,5 +124,4 @@ def process_julia_data_fusion(
 
     logger.info(f"Executing Julia command: {' '.join(command)}")
     # Execute the Julia command, adding the environment changes
-    # This assumes the Julia executable is in the system's PATH.
     subprocess.run(command, check=False, env=julia_env)

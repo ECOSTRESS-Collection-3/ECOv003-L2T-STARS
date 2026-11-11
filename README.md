@@ -189,15 +189,31 @@ pip install .
 
 ### Julia packages
 
-pip cannot install Julia packages. After `pip install`, run this once to install the exact Julia package versions pinned in the package's `Manifest.toml` and check that every Julia import loads:
+pip does not install Julia. After `pip install`, run:
 
-```
+```bash
 ECOv003-L2T-STARS-install-julia
 ```
 
-To re-check an existing install (for example inside the Docker container) without installing anything, run `ECOv003-L2T-STARS-install-julia --verify-only`; it exits non-zero if the Julia version or any import is wrong.
+Or call the same installer from Python:
 
-This requires Julia 1.13 (the version the manifests were resolved with). The Dockerfile runs this step during the image build. Julia is used for STARS data fusion; VIIRS retrieval and BRDF processing use the Python/Rust VCD43NRT package.
+```python
+import ECOv003_L2T_STARS
+
+ECOv003_L2T_STARS.install_julia()
+```
+
+The installer finds the exact Julia version recorded in the packaged `Manifest.toml`
+(currently 1.13.3). If necessary, it installs Juliaup and that Julia version, then
+instantiates and precompiles the pinned Julia packages and checks the Julia imports.
+Repeat calls reuse an existing installation. This may download software and write to
+the user's Julia installation and depot; it does not change an existing Juliaup
+default or directory override. Installing Juliaup on Windows requires `winget`.
+The function raises an error if installation or verification fails.
+
+To check an existing installation without installing anything, run
+`ECOv003-L2T-STARS-install-julia --verify-only`. Julia is used for STARS data
+fusion; VIIRS retrieval and BRDF processing use the Python/Rust VCD43NRT package.
 
 ## Usage
 

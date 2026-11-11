@@ -2,6 +2,8 @@ import argparse
 import logging
 import sys
 
+from .install_julia import install_julia
+
 from .constants import *
 from .L2T_STARS import L2T_STARS
 from .smoke_test import (
@@ -42,6 +44,8 @@ def main():
         sys.exit(_run_subtest(run_test_python))
     elif first_arg == "test-julia":
         sys.exit(_run_subtest(run_test_julia))
+    elif first_arg is "install-julia":
+        sys.exit(install_julia())
 
     parser = argparse.ArgumentParser(
         description="ECOSTRESS Collection 3 L2T_STARS PGE for generating Tiled Auxiliary NDVI and Albedo products.",
