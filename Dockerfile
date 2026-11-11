@@ -8,8 +8,8 @@ FROM base as environment
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata wget fish ca-certificates
 
 # Install Julia
-ENV JULIA_VERSION=1.13.3
-RUN wget -q https://julialang-s3.julialang.org/bin/linux/x64/1.13/julia-$JULIA_VERSION-linux-x86_64.tar.gz \
+ENV JULIA_VERSION=1.11.6
+RUN wget -q https://julialang-s3.julialang.org/bin/linux/x64/1.11/julia-$JULIA_VERSION-linux-x86_64.tar.gz \
     && tar -xzf julia-$JULIA_VERSION-linux-x86_64.tar.gz -C /opt \
     && ln -s /opt/julia-$JULIA_VERSION/bin/julia /usr/local/bin/julia \
     && rm julia-$JULIA_VERSION-linux-x86_64.tar.gz

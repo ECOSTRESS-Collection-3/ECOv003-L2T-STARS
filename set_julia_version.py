@@ -2,7 +2,7 @@
 """
 Reconfigure this package for a target Julia version with a complete environment overhaul.
 
-Usage: python set_julia_version.py 1.13        (or 1.13.3)
+Usage: python set_julia_version.py 1.11        (or 1.11.6)
 
 Installs the Julia channel with juliaup if missing, cleans out stale manifest/cache
 artifacts, updates the registry, recalculates dependencies from scratch, runs the
