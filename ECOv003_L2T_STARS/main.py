@@ -44,8 +44,14 @@ def main():
         sys.exit(_run_subtest(run_test_python))
     elif first_arg == "test-julia":
         sys.exit(_run_subtest(run_test_julia))
-    elif first_arg is "install-julia":
+    elif first_arg == "install-julia":
         sys.exit(install_julia())
+    elif first_arg == "test":
+        sys.exit(run_smoke_test())
+    elif first_arg == "test-julia":   
+        sys.exit(_run_subtest(run_test_julia))
+    elif first_arg == "test-python":
+        sys.exit(_run_subtest(run_test_python))
 
     parser = argparse.ArgumentParser(
         description="ECOSTRESS Collection 3 L2T_STARS PGE for generating Tiled Auxiliary NDVI and Albedo products.",
