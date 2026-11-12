@@ -7,6 +7,7 @@ from os.path import join, exists, basename
 from typing import Sequence, Union
 import logging
 import colored_logging as cl
+logging.getLogger("numexpr").setLevel(logging.WARNING)
 import pandas as pd
 from dateutil import parser
 
