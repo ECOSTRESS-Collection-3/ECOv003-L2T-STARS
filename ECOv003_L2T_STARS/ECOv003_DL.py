@@ -21,11 +21,7 @@ from .generate_L2T_STARS_runconfig import generate_L2T_STARS_runconfig
 from .runconfig import ECOSTRESSRunConfig, read_runconfig
 from .L2T_STARS import L2T_STARS
 
-# Read the version from the version.txt file
-with open(join(abspath(dirname(__file__)), "version.txt")) as f:
-    version = f.read()
-
-__version__ = version
+from .version import __version__
 
 # Configure the logger for the module
 logger = logging.getLogger(__name__)
