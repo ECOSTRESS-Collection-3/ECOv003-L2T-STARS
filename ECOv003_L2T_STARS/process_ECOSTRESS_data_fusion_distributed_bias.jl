@@ -3,10 +3,7 @@ using Dates
 using Rasters
 using LinearAlgebra
 using STARSDataFusion
-using STARSDataFusion.BBoxes
 using STARSDataFusion.sentinel_tiles
-using STARSDataFusion.HLS
-using STARSDataFusion.VNP43
 using Logging
 using Statistics
 using Distributed
