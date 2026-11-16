@@ -126,4 +126,4 @@ docker-remove:
 	docker rmi -f $(DOCKER_IMAGE_NAME):latest
 
 repomix:
-	npx repomix
+	npx repomix --ignore "**/*.ipynb,**/*.tif,**/*.pdf,**/*.dat,**/*.jpeg,**/*.pyc,**/Manifest.toml,build/**,__pycache__/**,*.egg-info/**,repomix-output.xml"
