@@ -124,3 +124,6 @@ docker-interactive:
 docker-remove:
 	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME)..."
 	docker rmi -f $(DOCKER_IMAGE_NAME):latest
+
+repomix:
+	npx repomix
