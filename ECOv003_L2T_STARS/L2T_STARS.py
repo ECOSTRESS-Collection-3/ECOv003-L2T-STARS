@@ -31,8 +31,11 @@ from ECOv002_granules import L2TLSTE as ECOv002L2TLSTE
 from ECOv003_granules import L2TLSTE
 import urllib
 
-from VCD43NRT.exceptions import CMRServerUnreachable as VCD43NRTCMRServerUnreachable
-from VCD43NRT.VIIRS import DownloadFailed as VCD43NRTDownloadFailed
+from VCD43NRT.exceptions import (
+    CMRServerUnreachable as VCD43NRTCMRServerUnreachable,
+    DownloadFailed as VCD43NRTDownloadFailed,
+    VIIRSUnavailableError as VCD43NRTVIIRSUnavailableError,
+)
 
 from .version import __version__
 from .constants import *
@@ -497,7 +500,7 @@ def L2T_STARS(
     except HLSNotAvailable as exception:
         logger.exception(exception)
         exit_code = LAND_FILTER  # This might indicate no HLS data for the tile, similar to land filter
-    except (HLSSentinelMissing, HLSLandsatMissing) as exception:
+    except (HLSSentinelMissing, HLSLandsatMissing, VCD43NRTVIIRSUnavailableError) as exception:
         logger.exception(exception)
         exit_code = AUXILIARY_LATENCY
     except ECOSTRESSExitCodeException as exception:

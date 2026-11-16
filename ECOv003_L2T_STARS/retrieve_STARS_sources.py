@@ -70,7 +70,7 @@ def retrieve_STARS_sources(
             HLS_connection.landsat(tile=tile, date_UTC=processing_date)
         except HLSDownloadFailed as e:
             logger.exception(e)
-            raise AuxiliaryDownloadFailed(e)
+            raise DownloadFailed(e)
         except (
             HLSTileNotAvailable,
             HLSSentinelNotAvailable,

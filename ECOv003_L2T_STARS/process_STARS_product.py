@@ -280,6 +280,16 @@ def process_STARS_product(
             num_workers=num_workers,
         )
 
+    for filename in [
+        posterior_NDVI_filename,
+        posterior_NDVI_UQ_filename,
+        posterior_NDVI_flag_filename,
+        posterior_NDVI_bias_filename,
+        posterior_NDVI_bias_UQ_filename,
+    ]:
+        if not exists(filename):
+            raise BlankOutput(f"Posterior NDVI raster file not found: {filename}")
+
     # Open the resulting NDVI rasters
     NDVI = Raster.open(posterior_NDVI_filename)
     NDVI_UQ = Raster.open(posterior_NDVI_UQ_filename)
@@ -397,6 +407,16 @@ def process_STARS_product(
             threads=threads,
             num_workers=num_workers,
         )
+
+    for filename in [
+        posterior_albedo_filename,
+        posterior_albedo_UQ_filename,
+        posterior_albedo_flag_filename,
+        posterior_albedo_bias_filename,
+        posterior_albedo_bias_UQ_filename,
+    ]:
+        if not exists(filename):
+            raise BlankOutput(f"Posterior albedo raster file not found: {filename}")
 
     # Open the resulting albedo rasters
     albedo = Raster.open(posterior_albedo_filename)
