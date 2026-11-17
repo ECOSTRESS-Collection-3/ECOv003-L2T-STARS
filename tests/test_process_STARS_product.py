@@ -1,5 +1,5 @@
+import importlib
 import sys
-import types
 from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -7,21 +7,15 @@ from unittest.mock import Mock, patch
 import pytest
 
 
-def _ensure_stub_modules():
-    try:
-        import ECOv003_exit_codes  # noqa: F401
-    except ImportError:
-        exit_codes = types.ModuleType("ECOv003_exit_codes")
+def _ensure_dependencies():
+    if isinstance(sys.modules.get("ECOv003_exit_codes"), Mock):
+        del sys.modules["ECOv003_exit_codes"]
+    import ECOv003_exit_codes  # noqa: F401
 
-        class ECOSTRESSExitCodeException(Exception):
-            exit_code = 1
-
-        class BlankOutput(ECOSTRESSExitCodeException):
-            exit_code = 17
-
-        exit_codes.ECOSTRESSExitCodeException = ECOSTRESSExitCodeException
-        exit_codes.BlankOutput = BlankOutput
-        sys.modules["ECOv003_exit_codes"] = exit_codes
+    if isinstance(sys.modules.get("VCD43NRT"), Mock):
+        del sys.modules["VCD43NRT"]
+        sys.modules.pop("VCD43NRT.exceptions", None)
+    import VCD43NRT  # noqa: F401
 
     for module_name in [
         "harmonized_landsat_sentinel",
@@ -34,17 +28,19 @@ def _ensure_stub_modules():
         "earthaccess",
         "colored_logging",
         "untangle",
-        "VCD43NRT",
     ]:
         if module_name not in sys.modules:
             sys.modules[module_name] = Mock()
 
 
-_ensure_stub_modules()
+_ensure_dependencies()
 
 from ECOv003_exit_codes import BlankOutput
 from ECOv003_L2T_STARS.prior import Prior
-from ECOv003_L2T_STARS.process_STARS_product import process_STARS_product
+import ECOv003_L2T_STARS.process_STARS_product as proc_mod
+
+importlib.reload(proc_mod)
+process_STARS_product = proc_mod.process_STARS_product
 
 
 def _invoke_process(tmp_path):

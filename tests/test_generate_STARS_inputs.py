@@ -1,5 +1,5 @@
+import importlib
 import sys
-import types
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -7,39 +7,15 @@ from unittest.mock import Mock, patch
 import pytest
 
 
-def _ensure_stub_modules():
-    try:
-        import ECOv003_exit_codes  # noqa: F401
-    except ImportError:
-        exit_codes = types.ModuleType("ECOv003_exit_codes")
+def _ensure_dependencies():
+    if isinstance(sys.modules.get("ECOv003_exit_codes"), Mock):
+        del sys.modules["ECOv003_exit_codes"]
+    import ECOv003_exit_codes  # noqa: F401
 
-        class ECOSTRESSExitCodeException(Exception):
-            exit_code = 1
-
-        class AuxiliaryLatency(ECOSTRESSExitCodeException):
-            exit_code = 15
-
-        class DownloadFailed(ECOSTRESSExitCodeException):
-            exit_code = 16
-
-        exit_codes.ECOSTRESSExitCodeException = ECOSTRESSExitCodeException
-        exit_codes.AuxiliaryLatency = AuxiliaryLatency
-        exit_codes.DownloadFailed = DownloadFailed
-        sys.modules["ECOv003_exit_codes"] = exit_codes
-
-    try:
-        import VCD43NRT.exceptions  # noqa: F401
-    except ImportError:
-        vcd_pkg = sys.modules.setdefault("VCD43NRT", types.ModuleType("VCD43NRT"))
-        vcd_pkg.VCD43NRT = Mock()
-        vcd_exc = types.ModuleType("VCD43NRT.exceptions")
-
-        class CMRServerUnreachable(Exception):
-            pass
-
-        vcd_exc.CMRServerUnreachable = CMRServerUnreachable
-        vcd_pkg.exceptions = vcd_exc
-        sys.modules["VCD43NRT.exceptions"] = vcd_exc
+    if isinstance(sys.modules.get("VCD43NRT"), Mock):
+        del sys.modules["VCD43NRT"]
+        sys.modules.pop("VCD43NRT.exceptions", None)
+    import VCD43NRT.exceptions  # noqa: F401
 
     for module_name in [
         "harmonized_landsat_sentinel",
@@ -57,11 +33,14 @@ def _ensure_stub_modules():
             sys.modules[module_name] = Mock()
 
 
-_ensure_stub_modules()
+_ensure_dependencies()
 
 from ECOv003_exit_codes import AuxiliaryLatency, DownloadFailed
 from VCD43NRT.exceptions import CMRServerUnreachable as VCD43NRTCMRServerUnreachable
-from ECOv003_L2T_STARS.generate_STARS_inputs import generate_STARS_inputs
+import ECOv003_L2T_STARS.generate_STARS_inputs as gen_mod
+
+importlib.reload(gen_mod)
+generate_STARS_inputs = gen_mod.generate_STARS_inputs
 
 
 class FakeRaster:
