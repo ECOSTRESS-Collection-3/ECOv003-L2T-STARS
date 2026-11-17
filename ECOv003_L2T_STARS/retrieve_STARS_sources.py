@@ -18,8 +18,10 @@ from harmonized_landsat_sentinel import (
 from ECOv003_exit_codes import *
 
 from VCD43NRT import VCD43NRT
+from VCD43NRT.exceptions import VIIRSUnavailableError as VCD43NRTVIIRSUnavailableError
 
 logger = logging.getLogger(__name__)
+
 
 def retrieve_STARS_sources(
     tile: str,
@@ -29,7 +31,8 @@ def retrieve_STARS_sources(
     VIIRS_start_date: date,
     VIIRS_end_date: date,
     HLS_connection: HLS2Connection,
-    VCD43NRT_connection: VCD43NRT):
+    VCD43NRT_connection: VCD43NRT,
+):
     """
     Retrieves necessary Harmonized Landsat Sentinel (HLS) and VIIRS source data.
 
@@ -49,7 +52,6 @@ def retrieve_STARS_sources(
 
     Raises:
         DownloadFailed: If an HLS download fails.
-        AuxiliaryLatency: If HLS data for a given tile/date is not available (latency issue).
     """
     logger.info(
         f"Retrieving HLS sources for tile {cl.place(tile)} from {cl.time(HLS_start_date)} to {cl.time(HLS_end_date)}"
@@ -70,7 +72,7 @@ def retrieve_STARS_sources(
             HLS_connection.landsat(tile=tile, date_UTC=processing_date)
         except HLSDownloadFailed as e:
             logger.exception(e)
-            raise AuxiliaryDownloadFailed(e)
+            raise DownloadFailed(e)
         except (
             HLSTileNotAvailable,
             HLSSentinelNotAvailable,
@@ -87,9 +89,14 @@ def retrieve_STARS_sources(
     logger.info(
         f"Retrieving VIIRS sources for tile {cl.place(tile)} from {cl.time(VIIRS_start_date)} to {cl.time(VIIRS_end_date)}"
     )
-    # Prefetch VNP09GA data for the specified VIIRS date range and geometry
-    VCD43NRT_connection.prefetch_VNP09GA(
-        start_date=VIIRS_start_date,
-        end_date=VIIRS_end_date,
-        geometry=geometry,
-    )
+    # Prefetch VNP09GA data for the specified VIIRS date range and geometry.
+    # Defer VIIRSUnavailableError to generate_STARS_inputs() so VIIRS_GIVEUP_DAYS
+    # latency vs. total-window failure is evaluated consistently.
+    try:
+        VCD43NRT_connection.prefetch_VNP09GA(
+            start_date=VIIRS_start_date,
+            end_date=VIIRS_end_date,
+            geometry=geometry,
+        )
+    except VCD43NRTVIIRSUnavailableError as e:
+        logger.warning(f"VIIRS prefetch reported unavailable granules: {e}")

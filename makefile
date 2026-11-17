@@ -10,7 +10,7 @@ JULIA_PROJECT_NAME = $(if $(JULIA_PROJECT),$(JULIA_PROJECT),$(subst -,_,$(PACKAG
         build twine-upload dist install-package install uninstall reinstall \
         environment remove-environment install-julia resolve-julia \
         julia-version colima-start docker-build docker-build-environment \
-        docker-build-installation docker-interactive docker-remove
+        docker-build-installation docker-interactive docker-remove repomix
 
 # --- Cleaning and Maintenance ---
 
@@ -18,6 +18,7 @@ clean:
 	@echo "Cleaning up build artifacts..."
 	rm -rf *.o *.out *.log
 	rm -rf build/ dist/ *.egg-info .pytest_cache .coverage htmlcov
+	rm -f repomix-output.xml
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 
@@ -124,3 +125,9 @@ docker-interactive:
 docker-remove:
 	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME)..."
 	docker rmi -f $(DOCKER_IMAGE_NAME):latest
+
+# --- Documentation & AI Context ---
+
+repomix:
+	@echo "Packing repository context with Repomix..."
+	npx repomix --ignore "**/*.ipynb,**/*.tif,**/*.pdf,**/*.dat,**/*.jpeg,**/*.pyc,**/Manifest.toml,build/**,__pycache__/**,*.egg-info/**,repomix-output.xml"

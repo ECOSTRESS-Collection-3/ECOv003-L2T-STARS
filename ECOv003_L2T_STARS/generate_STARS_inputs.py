@@ -1,5 +1,5 @@
 from typing import Union
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from os.path import exists
 import logging
 
@@ -7,8 +7,9 @@ import colored_logging as cl
 from rasters import Raster, RasterGeometry
 from harmonized_landsat_sentinel import HLS2Connection
 from VCD43NRT import VCD43NRT
+from VCD43NRT.exceptions import CMRServerUnreachable as VCD43NRTCMRServerUnreachable
 
-from ECOv003_exit_codes import AuxiliaryLatency
+from ECOv003_exit_codes import AuxiliaryLatency, DownloadFailed
 
 from .constants import VIIRS_GIVEUP_DAYS
 from .generate_filename import generate_filename
@@ -73,8 +74,12 @@ def generate_STARS_inputs(
 
     Raises:
         AuxiliaryLatency: If coarse VIIRS data is missing within the VIIRS_GIVEUP_DAYS window.
+        DownloadFailed: If zero coarse NDVI or albedo images are available across the window.
+        VCD43NRTCMRServerUnreachable: If the NASA CMR server cannot be reached.
     """
     missing_coarse_dates = set()  # Track dates where coarse data could not be generated
+    available_NDVI_coarse_count = 0
+    available_albedo_coarse_count = 0
 
     logger.info(f"preparing coarse and fine images for STARS at {cl.place(tile)}")
 
@@ -129,6 +134,9 @@ def generate_STARS_inputs(
                     f"saving coarse image for STARS NDVI at {cl.place(tile)} on {cl.time(processing_date)}: {NDVI_coarse_filename}")
                 NDVI_coarse_image.to_geotiff(NDVI_coarse_filename)
 
+            if exists(NDVI_coarse_filename):
+                available_NDVI_coarse_count += 1
+
             if processing_date >= HLS_start_date:
                 try:
                     if not exists(NDVI_fine_filename):
@@ -155,6 +163,8 @@ def generate_STARS_inputs(
                 except Exception as e:
                     logger.warning(f"HLS NDVI is not available on {processing_date}: {e}")
                     logger.debug(f"Exception details: ", exc_info=True)
+        except VCD43NRTCMRServerUnreachable:
+            raise
         except Exception as e:
             logger.exception(e)
             logger.warning(
@@ -178,6 +188,9 @@ def generate_STARS_inputs(
                 logger.info(
                     f"saving coarse image for STARS albedo at {cl.place(tile)} on {cl.time(processing_date)}: {albedo_coarse_filename}")
                 albedo_coarse_image.to_geotiff(albedo_coarse_filename)
+
+            if exists(albedo_coarse_filename):
+                available_albedo_coarse_count += 1
 
             if processing_date >= HLS_start_date:
                 try:
@@ -206,6 +219,8 @@ def generate_STARS_inputs(
                 except Exception as e:
                     logger.warning(f"HLS albedo is not available on {processing_date}: {e}")
                     logger.debug(f"Exception details: ", exc_info=True)
+        except VCD43NRTCMRServerUnreachable:
+            raise
         except Exception as e:
             logger.exception(e)
             logger.warning(
@@ -222,11 +237,21 @@ def generate_STARS_inputs(
     coarse_latency_dates = [
         d
         for d in missing_coarse_dates
-        if (datetime.utcnow().date() - d).days <= VIIRS_GIVEUP_DAYS
+        if (datetime.now(timezone.utc).date() - d).days <= VIIRS_GIVEUP_DAYS
     ]
 
     if len(coarse_latency_dates) > 0:
         raise AuxiliaryLatency(
             f"Missing coarse dates within {VIIRS_GIVEUP_DAYS}-day window: "
             f"{', '.join([str(d) for d in sorted(list(coarse_latency_dates))])}"
+        )
+
+    if available_NDVI_coarse_count == 0:
+        raise DownloadFailed(
+            f"No coarse NDVI images available for tile {tile} from {VIIRS_start_date} to {VIIRS_end_date}"
+        )
+
+    if available_albedo_coarse_count == 0:
+        raise DownloadFailed(
+            f"No coarse albedo images available for tile {tile} from {VIIRS_start_date} to {VIIRS_end_date}"
         )

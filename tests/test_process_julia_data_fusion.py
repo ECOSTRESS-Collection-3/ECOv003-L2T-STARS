@@ -1,7 +1,8 @@
 import os
+import subprocess
 import sys
 import pytest
-from unittest.mock import patch, MagicMock, call, Mock
+from unittest.mock import patch, Mock
 from datetime import date
 
 # Mock all the missing dependencies before importing
@@ -20,7 +21,8 @@ missing_modules = [
 ]
 
 for module in missing_modules:
-    sys.modules[module] = Mock()
+    if module not in sys.modules:
+        sys.modules[module] = Mock()
 
 from ECOv003_L2T_STARS.process_julia_data_fusion import process_julia_data_fusion
 
@@ -47,6 +49,7 @@ class TestProcessJuliaDataFusion:
     def test_gdal_data_removed_when_present(self, mock_exists, mock_subprocess):
         """Test that GDAL_DATA and GDAL_DRIVER_PATH are removed when present."""
         mock_exists.return_value = False  # No prior files exist
+        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -84,6 +87,7 @@ class TestProcessJuliaDataFusion:
     def test_no_error_when_gdal_vars_absent(self, mock_exists, mock_subprocess):
         """Test that no KeyError is raised when GDAL vars don't exist."""
         mock_exists.return_value = False  # No prior files exist
+        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
         
         # Should not raise KeyError even if GDAL vars are absent from mocked environment
         process_julia_data_fusion(
@@ -112,6 +116,7 @@ class TestProcessJuliaDataFusion:
     def test_julia_num_threads_set(self, mock_exists, mock_subprocess):
         """Test that JULIA_NUM_THREADS is set correctly."""
         mock_exists.return_value = False
+        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -144,6 +149,7 @@ class TestProcessJuliaDataFusion:
         """Test that prior filenames are included in command when all exist."""
         # Mock that all prior files exist
         mock_exists.return_value = True
+        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -182,6 +188,7 @@ class TestProcessJuliaDataFusion:
         """Test that prior filenames are not included when any don't exist."""
         # Mock that prior files don't exist
         mock_exists.return_value = False
+        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -210,3 +217,29 @@ class TestProcessJuliaDataFusion:
         # Verify prior files are NOT in the command
         assert "/tmp/prior.tif" not in command
         assert "/tmp/prior_uq.tif" not in command
+
+    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
+    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
+    @patch.dict('os.environ', {}, clear=True)
+    def test_raises_on_nonzero_julia_exit_code(self, mock_exists, mock_subprocess):
+        """Test that a non-zero Julia subprocess exit code raises RuntimeError."""
+        mock_exists.return_value = False
+        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=1)
+
+        with pytest.raises(RuntimeError, match="Julia data fusion failed for NDVI at tile T11SPA with exit code 1"):
+            process_julia_data_fusion(
+                tile="T11SPA",
+                coarse_cell_size=1000,
+                fine_cell_size=30,
+                VIIRS_start_date=date(2024, 1, 1),
+                VIIRS_end_date=date(2024, 1, 10),
+                HLS_start_date=date(2024, 1, 1),
+                HLS_end_date=date(2024, 1, 10),
+                downsampled_directory="/tmp/test",
+                product_name="NDVI",
+                posterior_filename="/tmp/posterior.tif",
+                posterior_UQ_filename="/tmp/posterior_uq.tif",
+                posterior_flag_filename="/tmp/posterior_flag.tif",
+                posterior_bias_filename="/tmp/posterior_bias.tif",
+                posterior_bias_UQ_filename="/tmp/posterior_bias_uq.tif",
+            )

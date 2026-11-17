@@ -124,4 +124,8 @@ def process_julia_data_fusion(
 
     logger.info(f"Executing Julia command: {' '.join(command)}")
     # Execute the Julia command, adding the environment changes
-    subprocess.run(command, check=False, env=julia_env)
+    result = subprocess.run(command, check=False, env=julia_env)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Julia data fusion failed for {product_name} at tile {tile} with exit code {result.returncode}"
+        )
