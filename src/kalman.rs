@@ -1,62 +1,140 @@
-use faer::prelude::*;
-use faer::{Mat, Side};
+use faer::linalg::matmul::matmul;
+use faer::linalg::solvers::DenseSolveCore;
+use faer::{Accum, Mat, Par};
+use ndarray::{Array2, Array3, ArrayView2, ArrayView3};
 use rayon::prelude::*;
 
-use crate::covariance::exp_cor;
 use crate::sobol::sobol_bau_ij;
 use crate::spatial::{
     bbox_from_centroid, find_all_ij_ext, find_overlapping_ext, get_sij_from_ij, merge_extents,
-    unif_weighted_obs_operator_centroid,
 };
 
 pub struct FusionInputs<'a> {
-    pub coarse_stack: &'a [f64],
-    pub coarse_nx: usize,
-    pub coarse_ny: usize,
-    pub coarse_nt: usize,
-    pub coarse_times: &'a [usize], // 1-based time indices
-    pub fine_stack: &'a [f64],
-    pub fine_nx: usize,
-    pub fine_ny: usize,
-    pub fine_nt: usize,
-    pub fine_times: &'a [usize], // 1-based time indices
+    pub coarse_data: ArrayView3<'a, f64>, // (nx_c, ny_c, nt_c)
+    pub coarse_dates: &'a [usize],         // 1-based time indices
+    pub fine_data: ArrayView3<'a, f64>,   // (nx_f, ny_f, nt_f)
+    pub fine_dates: &'a [usize],           // 1-based time indices
     pub coarse_origin: [f64; 2],
-    pub coarse_cell_size: [f64; 2],
+    pub coarse_csize: [f64; 2],
     pub fine_origin: [f64; 2],
-    pub fine_cell_size: [f64; 2],
-    pub prior_mean: &'a [f64],
-    pub prior_var: &'a [f64],
-    pub prior_bias_mean: &'a [f64],
-    pub prior_bias_var: &'a [f64],
-    pub cov_scale: &'a [f64],
-    pub coarse_res_scalar: f64,
-    pub target_time: usize, // 1-based target time index
+    pub fine_csize: [f64; 2],
+    pub prior_mean: ArrayView2<'a, f64>,
+    pub prior_var: ArrayView2<'a, f64>,
+    pub prior_bias_mean: ArrayView2<'a, f64>,
+    pub prior_bias_var: ArrayView2<'a, f64>,
+    pub cov_scale: ArrayView2<'a, f64>, // model_pars[:, :, 1]
+    pub coarse_cell_size: f64,
+    pub n_times: usize,
     pub nsamp: usize,
     pub window_buffer: f64,
-    pub nb_coarse: f64,
     pub cov_wt: f64,
+    pub phi: f64,
+    pub ar_par: f64,
+    pub nb_coarse: f64,
+}
+
+pub struct FusionOutputs {
+    pub fused_mean: Array2<f64>,
+    pub fused_sd: Array2<f64>,
+    pub fused_bias: Array2<f64>,
+    pub fused_bias_sd: Array2<f64>,
+}
+
+/// Port of Julia `coarse_fine_scene_fusion_cbias_pmap` + `coarse_fine_fusion_cbias_dict`.
+pub fn run_scene_fusion(inp: &FusionInputs<'_>) -> FusionOutputs {
+    let window_csize = inp.coarse_csize;
+    let target_csize = inp.fine_csize;
+    let window_origin = inp.coarse_origin;
+    let target_origin = inp.fine_origin;
+
+    let window_ndims = [inp.coarse_data.shape()[0], inp.coarse_data.shape()[1]];
+    let target_ndims = [inp.fine_data.shape()[0], inp.fine_data.shape()[1]];
+
+    let n_win = window_ndims[0] * window_ndims[1];
+    let mut win_indices = Vec::with_capacity(n_win);
+    for k in 1..=window_ndims[0] {
+        for l in 1..=window_ndims[1] {
+            win_indices.push((k, l));
+        }
+    }
+
+    let sgn_target = [
+        if target_csize[0] >= 0.0 { 1.0 } else { -1.0 },
+        if target_csize[1] >= 0.0 { 1.0 } else { -1.0 },
+    ];
+    let abs_fine_csize = [target_csize[0].abs(), target_csize[1].abs()];
+    let abs_coarse_csize = [window_csize[0].abs(), window_csize[1].abs()];
+
+    // Parallelize over all coarse windows via Rayon
+    let results: Vec<WindowResult> = win_indices
+        .par_iter()
+        .map(|&(k, l)| {
+            solve_window(
+                inp,
+                k,
+                l,
+                window_origin,
+                window_csize,
+                window_ndims,
+                target_origin,
+                target_csize,
+                target_ndims,
+                sgn_target,
+                abs_fine_csize,
+                abs_coarse_csize,
+            )
+        })
+        .collect();
+
+    let mut fused_mean = Array2::<f64>::zeros((target_ndims[0], target_ndims[1]));
+    let mut fused_sd = Array2::<f64>::zeros((target_ndims[0], target_ndims[1]));
+    let mut fused_bias = Array2::<f64>::zeros((window_ndims[0], window_ndims[1]));
+    let mut fused_bias_sd = Array2::<f64>::zeros((window_ndims[0], window_ndims[1]));
+
+    for res in results {
+        fused_bias[[res.bias_ij[0] - 1, res.bias_ij[1] - 1]] = res.bias_mean;
+        fused_bias_sd[[res.bias_ij[0] - 1, res.bias_ij[1] - 1]] = res.bias_sd;
+        for (idx, &[ti, tj]) in res.target_ij.iter().enumerate() {
+            fused_mean[[ti - 1, tj - 1]] = res.target_mean[idx];
+            fused_sd[[ti - 1, tj - 1]] = res.target_sd[idx];
+        }
+    }
+
+    FusionOutputs {
+        fused_mean,
+        fused_sd,
+        fused_bias,
+        fused_bias_sd,
+    }
 }
 
 struct WindowResult {
     target_ij: Vec<[usize; 2]>,
     bias_ij: [usize; 2],
-    fused_mean: Vec<f64>,
-    fused_sd: Vec<f64>,
-    fused_bias: f64,
-    fused_bias_sd: f64,
+    target_mean: Vec<f64>,
+    target_sd: Vec<f64>,
+    bias_mean: f64,
+    bias_sd: f64,
 }
 
-fn solve_window(k: usize, l: usize, inp: &FusionInputs<'_>) -> WindowResult {
-    let window_csize = inp.coarse_cell_size;
-    let target_csize = inp.fine_cell_size;
-    let window_origin = inp.coarse_origin;
-    let target_origin = inp.fine_origin;
-    let target_ndims = [inp.fine_nx, inp.fine_ny];
-    let coarse_ndims = [inp.coarse_nx, inp.coarse_ny];
-
+#[allow(clippy::too_many_arguments)]
+fn solve_window(
+    inp: &FusionInputs<'_>,
+    k: usize,
+    l: usize,
+    window_origin: [f64; 2],
+    window_csize: [f64; 2],
+    window_ndims: [usize; 2],
+    target_origin: [f64; 2],
+    target_csize: [f64; 2],
+    target_ndims: [usize; 2],
+    sgn_target: [f64; 2],
+    abs_fine_csize: [f64; 2],
+    abs_coarse_csize: [f64; 2],
+) -> WindowResult {
     let bbox_centroid = [
-        window_origin[0] + ((k - 1) as f64) * window_csize[0],
-        window_origin[1] + ((l - 1) as f64) * window_csize[1],
+        window_origin[0] + (k - 1) as f64 * window_csize[0],
+        window_origin[1] + (l - 1) as f64 * window_csize[1],
     ];
     let window_bbox = bbox_from_centroid(bbox_centroid, window_csize);
 
@@ -71,8 +149,8 @@ fn solve_window(k: usize, l: usize, inp: &FusionInputs<'_>) -> WindowResult {
         ],
     ];
 
-    let ov_fine = find_overlapping_ext(buffer_ext[0], buffer_ext[1], target_origin, target_csize, false);
-    let ov_coarse = find_overlapping_ext(buffer_ext[0], buffer_ext[1], window_origin, window_csize, false);
+    let ext_fine = find_overlapping_ext(buffer_ext[0], buffer_ext[1], target_origin, target_csize);
+    let ext_coarse = find_overlapping_ext(buffer_ext[0], buffer_ext[1], window_origin, window_csize);
     let exx = [
         [
             window_bbox[0][0] + (-inp.nb_coarse - 0.01) * window_csize[0],
@@ -83,11 +161,7 @@ fn solve_window(k: usize, l: usize, inp: &FusionInputs<'_>) -> WindowResult {
             window_bbox[1][1] + (inp.nb_coarse + 0.01) * window_csize[1],
         ],
     ];
-
-    let full_ext = merge_extents(
-        &[ov_fine, ov_coarse, exx],
-        [target_csize[0].signum(), target_csize[1].signum()],
-    );
+    let full_ext = merge_extents(&[ext_fine, ext_coarse, exx], sgn_target);
 
     let target_ij = find_all_ij_ext(
         window_bbox[0],
@@ -103,7 +177,7 @@ fn solve_window(k: usize, l: usize, inp: &FusionInputs<'_>) -> WindowResult {
         target_origin,
         target_csize,
         target_ndims,
-        false,
+        true,
     );
     let ss_samp = sobol_bau_ij(
         full_ext[0],
@@ -112,272 +186,444 @@ fn solve_window(k: usize, l: usize, inp: &FusionInputs<'_>) -> WindowResult {
         target_csize,
         target_ndims,
         inp.nsamp,
-        false,
     );
 
-    let mut bau_ij = Vec::with_capacity(target_ij.len() + ss_target.len() + ss_samp.len());
-    for pair in target_ij.iter().chain(ss_target.iter()).chain(ss_samp.iter()) {
-        if !bau_ij.contains(pair) {
-            bau_ij.push(*pair);
+    // Deduplicate bau_ij preserving Julia `unique(vcat(target_ij, ss_target, ss_samp), dims=1)` order
+    let mut bau_ij: Vec<[usize; 2]> =
+        Vec::with_capacity(target_ij.len() + ss_target.len() + ss_samp.len());
+    for &p in target_ij.iter().chain(ss_target.iter()).chain(ss_samp.iter()) {
+        if !bau_ij.iter().any(|&q| q == p) {
+            bau_ij.push(p);
         }
     }
 
     let nf = bau_ij.len();
-    let nbau = target_ij.len();
-
-    let bau_xy: Vec<[f64; 2]> = bau_ij
-        .iter()
-        .map(|&ij| get_sij_from_ij(ij, target_origin, target_csize))
-        .collect();
+    let n_kp = target_ij.len();
+    let bau_xy = get_sij_from_ij(&bau_ij, target_origin, target_csize);
 
     let coarse_ij = find_all_ij_ext(
         full_ext[0],
         full_ext[1],
         window_origin,
         window_csize,
-        coarse_ndims,
+        window_ndims,
         false,
     );
-    let coarse_xy_raw: Vec<[f64; 2]> = coarse_ij
-        .iter()
-        .map(|&ij| get_sij_from_ij(ij, window_origin, window_csize))
-        .collect();
+    let coarse_xy = get_sij_from_ij(&coarse_ij, window_origin, window_csize);
 
-    let kp_bias = coarse_xy_raw
+    // Find central coarse pixel index kp_bias and reorder pp = [kp_bias, others...]
+    let kp_bias = coarse_xy
         .iter()
-        .position(|xy| (xy[0] - bbox_centroid[0]).abs() + (xy[1] - bbox_centroid[1]).abs() == 0.0)
+        .position(|&c| (c[0] - bbox_centroid[0]).abs() + (c[1] - bbox_centroid[1]).abs() == 0.0)
         .unwrap_or(0);
 
-    let mut coarse_ordered_ij = Vec::with_capacity(coarse_ij.len());
-    let mut coarse_xy = Vec::with_capacity(coarse_ij.len());
-    coarse_ordered_ij.push(coarse_ij[kp_bias]);
-    coarse_xy.push(coarse_xy_raw[kp_bias]);
-    for idx in 0..coarse_ij.len() {
+    let nb = coarse_ij.len();
+    let mut pp = Vec::with_capacity(nb);
+    pp.push(kp_bias);
+    for idx in 0..nb {
         if idx != kp_bias {
-            coarse_ordered_ij.push(coarse_ij[idx]);
-            coarse_xy.push(coarse_xy_raw[idx]);
+            pp.push(idx);
         }
     }
 
-    let nc = coarse_ordered_ij.len();
-    let n = nf + nc;
+    let n = nf + nb;
 
-    let h_fine = unif_weighted_obs_operator_centroid(&bau_xy, &bau_xy, [target_csize[0].abs(), target_csize[1].abs()]);
-    let h_coarse = unif_weighted_obs_operator_centroid(&coarse_xy, &bau_xy, [window_csize[0].abs(), window_csize[1].abs()]);
-
-    let nrows_h = nf + nc;
-    let mut h_full = vec![0.0f64; nrows_h * n];
-    for r in 0..nf {
-        for c in 0..nf {
-            h_full[r * n + c] = h_fine[r * nf + c];
-        }
-    }
-    for r in 0..nc {
-        let out_r = nf + r;
-        for c in 0..nf {
-            h_full[out_r * n + c] = h_coarse[r * nf + c];
-        }
-        h_full[out_r * n + (nf + r)] = 1.0;
-    }
-
-    let qs = exp_cor(&bau_xy, inp.coarse_res_scalar, 1e-10);
+    // Build initial state & covariance
+    let mut x_cur = vec![0.0f64; n];
+    let mut p_cur = Mat::<f64>::zeros(n, n);
     let mut q_mat = Mat::<f64>::zeros(n, n);
-    let mut cvs = Vec::with_capacity(nf);
-    for &[bi, bj] in &bau_ij {
-        cvs.push(inp.cov_scale[(bi - 1) * inp.fine_ny + (bj - 1)]);
+    let mut sqrt_pars = vec![0.0f64; nf];
+    let mut sqrt_q_diag = vec![0.0f64; nf];
+
+    for (idx, &[i, j]) in bau_ij.iter().enumerate() {
+        let ii = i - 1;
+        let jj = j - 1;
+        x_cur[idx] = inp.prior_mean[[ii, jj]];
+        p_cur[(idx, idx)] = inp.prior_var[[ii, jj]];
+        let sc = inp.cov_scale[[ii, jj]];
+        sqrt_pars[idx] = sc;
+        let qv = inp.cov_wt * sc * sc;
+        q_mat[(idx, idx)] = qv;
+        sqrt_q_diag[idx] = qv.sqrt();
     }
-    for i in 0..nf {
-        for j in 0..nf {
-            q_mat[(i, j)] = cvs[i] * qs[i * nf + j] * cvs[j];
+
+    let mut bias_ij_ordered = Vec::with_capacity(nb);
+    let mut bias_xy_ordered = Vec::with_capacity(nb);
+    for (b_pos, &orig_idx) in pp.iter().enumerate() {
+        let [ci, cj] = coarse_ij[orig_idx];
+        bias_ij_ordered.push([ci, cj]);
+        bias_xy_ordered.push(coarse_xy[orig_idx]);
+        let st = nf + b_pos;
+        x_cur[st] = inp.prior_bias_mean[[ci - 1, cj - 1]];
+        p_cur[(st, st)] = inp.prior_bias_var[[ci - 1, cj - 1]];
+        q_mat[(st, st)] = 1e-10;
+    }
+
+    // Build spatial correlation matrix C for fine BAUs
+    let inv_range = 1.0 / inp.coarse_cell_size;
+    let mut c_fine = Mat::<f64>::zeros(nf, nf);
+    for r in 0..nf {
+        let sr = sqrt_pars[r];
+        let xr = bau_xy[r][0];
+        let yr = bau_xy[r][1];
+        c_fine[(r, r)] = sr * sr + 1e-10;
+        for c in (r + 1)..nf {
+            let dx = xr - bau_xy[c][0];
+            let dy = yr - bau_xy[c][1];
+            let dist = dx.hypot(dy);
+            let corr = (-dist * inv_range).exp();
+            let val = sr * corr * sqrt_pars[c];
+            c_fine[(r, c)] = val;
+            c_fine[(c, r)] = val;
         }
     }
-    for b in 0..nc {
-        q_mat[(nf + b, nf + b)] = 1e-6;
+
+    // Build spatial correlation matrix C for coarse bias pixels
+    let mut c_bias = Mat::<f64>::zeros(nb, nb);
+    for r in 0..nb {
+        c_bias[(r, r)] = 1.0 + 1e-6;
+        let xr = bias_xy_ordered[r][0];
+        let yr = bias_xy_ordered[r][1];
+        for c in (r + 1)..nb {
+            let dx = xr - bias_xy_ordered[c][0];
+            let dy = yr - bias_xy_ordered[c][1];
+            let dist = dx.hypot(dy);
+            let corr = (-dist * inv_range).exp();
+            c_bias[(r, c)] = corr;
+            c_bias[(c, r)] = corr;
+        }
     }
 
-    let mut mean = vec![0.0f64; n];
-    let mut cov = Mat::<f64>::zeros(n, n);
-    for (idx, &[bi, bj]) in bau_ij.iter().enumerate() {
-        let flat = (bi - 1) * inp.fine_ny + (bj - 1);
-        mean[idx] = inp.prior_mean[flat];
-        cov[(idx, idx)] = inp.prior_var[flat];
+    // Update Q matrix off-diagonals
+    for r in 0..nf {
+        let sqr = sqrt_q_diag[r];
+        let xr = bau_xy[r][0];
+        let yr = bau_xy[r][1];
+        for c in (r + 1)..nf {
+            let dx = xr - bau_xy[c][0];
+            let dy = yr - bau_xy[c][1];
+            let dist = dx.hypot(dy);
+            let corr = (-dist * inv_range).exp();
+            let val = sqr * corr * sqrt_q_diag[c];
+            q_mat[(r, c)] = val;
+            q_mat[(c, r)] = val;
+        }
     }
-    for (b, &[ci, cj]) in coarse_ordered_ij.iter().enumerate() {
-        let flat = (ci - 1) * inp.coarse_ny + (cj - 1);
-        mean[nf + b] = inp.prior_bias_mean[flat];
-        cov[(nf + b, nf + b)] = inp.prior_bias_var[flat];
+    for r in 0..nb {
+        let xr = bias_xy_ordered[r][0];
+        let yr = bias_xy_ordered[r][1];
+        for c in (r + 1)..nb {
+            let dx = xr - bias_xy_ordered[c][0];
+            let dy = yr - bias_xy_ordered[c][1];
+            let dist = dx.hypot(dy);
+            let corr = (-dist * inv_range).exp();
+            let val = 1e-5 * corr * 1e-5;
+            q_mat[(nf + r, nf + c)] = val;
+            q_mat[(nf + c, nf + r)] = val;
+        }
     }
 
-    let t0 = inp.fine_times.iter().chain(inp.coarse_times.iter()).copied().min().unwrap_or(1);
-    let tp = inp.target_time;
+    // Precompute coarse observation operator H_coarse (nb x nf)
+    let hx = abs_coarse_csize[0] / 2.0 + 1e-12;
+    let hy = abs_coarse_csize[1] / 2.0 + 1e-12;
+    let mut h_coarse = vec![0.0f64; nb * nf];
+    for r in 0..nb {
+        let sx = bias_xy_ordered[r][0];
+        let sy = bias_xy_ordered[r][1];
+        let mut cnt = 0usize;
+        for c in 0..nf {
+            if (sx - bau_xy[c][0]).abs() <= hx && (sy - bau_xy[c][1]).abs() <= hy {
+                h_coarse[r * nf + c] = 1.0;
+                cnt += 1;
+            }
+        }
+        if cnt > 0 {
+            let inv_cnt = 1.0 / (cnt as f64);
+            for c in 0..nf {
+                h_coarse[r * nf + c] *= inv_cnt;
+            }
+        }
+    }
 
-    let mut fused_mean = vec![0.0f64; nbau];
-    let mut fused_sd = vec![0.0f64; nbau];
-    let mut fused_bias = 0.0f64;
-    let mut fused_bias_sd = 0.0f64;
+    // Fine sensor resolution check
+    let fine_is_identity =
+        (abs_fine_csize[0] - abs_coarse_csize[0]).abs() < 1e-12 && nf == nb;
 
-    let uq_obs = 1e-6f64;
+    // Pre-allocate reusable buffers for Kalman updates
+    let mut x_pred = vec![0.0f64; n];
+    let mut p_pred = Mat::<f64>::zeros(n, n);
+    let max_m = nf + nb;
+    let mut y_vec = Vec::with_capacity(max_m);
+    let mut err_vars = Vec::with_capacity(max_m);
+    let mut ht_buf = Mat::<f64>::zeros(max_m, n);
+    let mut h_t_buf = Mat::<f64>::zeros(n, max_m);
+    let mut hp_pt_buf = Mat::<f64>::zeros(n, max_m);
+    let mut s_buf = Mat::<f64>::zeros(max_m, max_m);
+    let mut hp_pred_buf = Mat::<f64>::zeros(max_m, n);
 
-    for t2 in t0..=tp {
-        for r in 0..n {
+    for t in 1..=inp.n_times {
+        let t2 = t + 1;
+
+        // Predict step (t2 > 2 applies AR transition, t2 == 2 uses prior directly)
+        if t2 > 2 {
+            for idx in 0..nf {
+                x_pred[idx] = inp.ar_par * x_cur[idx];
+            }
+            for idx in nf..n {
+                x_pred[idx] = x_cur[idx];
+            }
+            let ar2 = inp.ar_par * inp.ar_par;
+            for r in 0..n {
+                for c in 0..n {
+                    let mult = if r < nf && c < nf {
+                        ar2
+                    } else if r < nf || c < nf {
+                        inp.ar_par
+                    } else {
+                        1.0
+                    };
+                    p_pred[(r, c)] = mult * p_cur[(r, c)] + q_mat[(r, c)];
+                }
+            }
+        } else {
+            x_pred.copy_from_slice(&x_cur);
+            p_pred.copy_from(&p_cur);
+        }
+
+        // Gather valid observations at time `t`
+        y_vec.clear();
+        err_vars.clear();
+        let mut m = 0usize;
+
+        // 1. Fine observations at time t
+        if let Some(f_pos) = inp.fine_dates.iter().position(|&d| d == t) {
+            if fine_is_identity {
+                for (r, &[bi, bj]) in bau_ij.iter().enumerate() {
+                    let val = inp.fine_data[[bi - 1, bj - 1, f_pos]];
+                    if !val.is_nan() {
+                        for col in 0..n {
+                            let h_val = if col == r { 1.0 } else { 0.0 };
+                            ht_buf[(m, col)] = h_val;
+                            h_t_buf[(col, m)] = h_val;
+                        }
+                        y_vec.push(val);
+                        err_vars.push(1e-6);
+                        m += 1;
+                    }
+                }
+            } else {
+                let fhx = abs_fine_csize[0] / 2.0 + 1e-12;
+                let fhy = abs_fine_csize[1] / 2.0 + 1e-12;
+                for (r, &[bi, bj]) in bau_ij.iter().enumerate() {
+                    let val = inp.fine_data[[bi - 1, bj - 1, f_pos]];
+                    if !val.is_nan() {
+                        let sx = bau_xy[r][0];
+                        let sy = bau_xy[r][1];
+                        let mut cnt = 0usize;
+                        for col in 0..n {
+                            ht_buf[(m, col)] = 0.0;
+                            h_t_buf[(col, m)] = 0.0;
+                        }
+                        for c in 0..nf {
+                            if (sx - bau_xy[c][0]).abs() <= fhx && (sy - bau_xy[c][1]).abs() <= fhy
+                            {
+                                ht_buf[(m, c)] = 1.0;
+                                cnt += 1;
+                            }
+                        }
+                        if cnt > 0 {
+                            let inv_cnt = 1.0 / (cnt as f64);
+                            for c in 0..nf {
+                                let h_val = ht_buf[(m, c)] * inv_cnt;
+                                ht_buf[(m, c)] = h_val;
+                                h_t_buf[(c, m)] = h_val;
+                            }
+                        }
+                        y_vec.push(val);
+                        err_vars.push(1e-6);
+                        m += 1;
+                    }
+                }
+            }
+        }
+
+        // 2. Coarse observations at time t (dynamic_bias = true)
+        if let Some(c_pos) = inp.coarse_dates.iter().position(|&d| d == t) {
+            for (r, &[ci, cj]) in bias_ij_ordered.iter().enumerate() {
+                let val = inp.coarse_data[[ci - 1, cj - 1, c_pos]];
+                if !val.is_nan() {
+                    for c in 0..nf {
+                        let h_val = h_coarse[r * nf + c];
+                        ht_buf[(m, c)] = h_val;
+                        h_t_buf[(c, m)] = h_val;
+                    }
+                    for b in 0..nb {
+                        let h_val = if b == r { 1.0 } else { 0.0 };
+                        ht_buf[(m, nf + b)] = h_val;
+                        h_t_buf[(nf + b, m)] = h_val;
+                    }
+                    y_vec.push(val);
+                    err_vars.push(1e-6);
+                    m += 1;
+                }
+            }
+        }
+
+        if m == 0 {
+            x_cur.copy_from_slice(&x_pred);
+            p_cur.copy_from(&p_pred);
+            continue;
+        }
+
+        // Submatrix views for m observations
+        let ht = ht_buf.as_ref().submatrix(0, 0, m, n);
+        let h_t = h_t_buf.as_ref().submatrix(0, 0, n, m);
+        let mut hp_pt = hp_pt_buf.as_mut().submatrix_mut(0, 0, n, m);
+        let mut s_mat = s_buf.as_mut().submatrix_mut(0, 0, m, m);
+        let mut hp_pred = hp_pred_buf.as_mut().submatrix_mut(0, 0, m, n);
+
+        // Select covariance used in Kalman gain
+        let use_c_cov = t2 == 2;
+        if use_c_cov {
+            // Block-diagonal C_cov = blkdiag(c_fine, c_bias)
+            for i in 0..nf {
+                for j in 0..m {
+                    let mut sum = 0.0;
+                    for c in 0..nf {
+                        sum += c_fine[(i, c)] * h_t[(c, j)];
+                    }
+                    hp_pt[(i, j)] = sum;
+                }
+            }
+            for i in 0..nb {
+                for j in 0..m {
+                    let mut sum = 0.0;
+                    for c in 0..nb {
+                        sum += c_bias[(i, c)] * h_t[(nf + c, j)];
+                    }
+                    hp_pt[(nf + i, j)] = sum;
+                }
+            }
+        } else {
+            // SIMD GEMM: HPpT = P_pred * Ht'
+            matmul(
+                hp_pt.as_mut(),
+                Accum::Replace,
+                p_pred.as_ref(),
+                h_t,
+                1.0,
+                Par::Seq,
+            );
+        }
+
+        // SIMD GEMM: S = Ht * HPpT + diag(err_vars)
+        matmul(
+            s_mat.as_mut(),
+            Accum::Replace,
+            ht,
+            hp_pt.as_ref(),
+            1.0,
+            Par::Seq,
+        );
+        for idx in 0..m {
+            s_mat[(idx, idx)] += err_vars[idx];
+        }
+
+        // Solve S * K^T = HPpT^T  =>  K = HPpT * S^-1 via Cholesky (fallback LU)
+        let k_mat = match s_mat.as_ref().llt(faer::Side::Lower) {
+            Ok(chol) => {
+                let mut rhs = Mat::<f64>::zeros(m, n);
+                for r in 0..m {
+                    for c in 0..n {
+                        rhs[(r, c)] = hp_pt[(c, r)];
+                    }
+                }
+                chol.solve_in_place(rhs.as_mut());
+                let mut k = Mat::<f64>::zeros(n, m);
+                for r in 0..n {
+                    for c in 0..m {
+                        k[(r, c)] = rhs[(c, r)];
+                    }
+                }
+                k
+            }
+            Err(_) => {
+                let lu = s_mat.as_ref().partial_piv_lu();
+                let mut rhs = Mat::<f64>::zeros(m, n);
+                for r in 0..m {
+                    for c in 0..n {
+                        rhs[(r, c)] = hp_pt[(c, r)];
+                    }
+                }
+                lu.solve_in_place(rhs.as_mut());
+                let mut k = Mat::<f64>::zeros(n, m);
+                for r in 0..n {
+                    for c in 0..m {
+                        k[(r, c)] = rhs[(c, r)];
+                    }
+                }
+                k
+            }
+        };
+
+        // res_pred = y - Ht * x_pred
+        let mut res_pred = vec![0.0f64; m];
+        for r in 0..m {
+            let mut hx = 0.0;
             for c in 0..n {
-                cov[(r, c)] += q_mat[(r, c)];
+                hx += ht[(r, c)] * x_pred[c];
             }
+            res_pred[r] = y_vec[r] - hx;
         }
 
-        let mut active_rows = Vec::new();
-        let mut y_obs = Vec::new();
-
-        if let Some(ft_idx) = inp.fine_times.iter().position(|&t| t == t2) {
-            for (idx, &[bi, bj]) in bau_ij.iter().enumerate() {
-                let val = inp.fine_stack[((bi - 1) * inp.fine_ny + (bj - 1)) * inp.fine_nt + ft_idx];
-                if !val.is_nan() {
-                    active_rows.push(idx);
-                    y_obs.push(val);
-                }
+        // x_cur = x_pred + K * res_pred
+        for r in 0..n {
+            let mut delta = 0.0;
+            for c in 0..m {
+                delta += k_mat[(r, c)] * res_pred[c];
             }
+            x_cur[r] = x_pred[r] + delta;
         }
 
-        if let Some(ct_idx) = inp.coarse_times.iter().position(|&t| t == t2) {
-            for (b, &[ci, cj]) in coarse_ordered_ij.iter().enumerate() {
-                let val = inp.coarse_stack[((ci - 1) * inp.coarse_ny + (cj - 1)) * inp.coarse_nt + ct_idx];
-                if !val.is_nan() {
-                    let row_idx = nf + b;
-                    let has_fine_support = (0..nf).any(|c| h_full[row_idx * n + c] > 0.0);
-                    if has_fine_support {
-                        active_rows.push(row_idx);
-                        y_obs.push(val);
-                    }
-                }
-            }
-        }
+        // SIMD GEMM: HP_pred = Ht * P_pred
+        matmul(
+            hp_pred.as_mut(),
+            Accum::Replace,
+            ht,
+            p_pred.as_ref(),
+            1.0,
+            Par::Seq,
+        );
 
-        let m = active_rows.len();
-        if m > 0 {
-            let mut ht = Mat::<f64>::zeros(m, n);
-            for (r_out, &r_in) in active_rows.iter().enumerate() {
-                for c in 0..n {
-                    ht[(r_out, c)] = h_full[r_in * n + c];
-                }
-            }
-
-            let mut res = vec![0.0f64; m];
-            for r in 0..m {
-                let mut pred_y = 0.0;
-                for c in 0..n {
-                    pred_y += ht[(r, c)] * mean[c];
-                }
-                res[r] = y_obs[r] - pred_y;
-            }
-
-            let mut hp_pt = Mat::<f64>::zeros(n, m);
-            for i in 0..n {
-                for r in 0..m {
-                    let mut acc = 0.0;
-                    for c in 0..n {
-                        acc += cov[(i, c)] * ht[(r, c)];
-                    }
-                    hp_pt[(i, r)] = acc;
-                }
-            }
-
-            let mut s_mat = Mat::<f64>::zeros(m, m);
-            for r1 in 0..m {
-                for r2 in 0..m {
-                    let mut acc = 0.0;
-                    for c in 0..n {
-                        acc += ht[(r1, c)] * hp_pt[(c, r2)];
-                    }
-                    if r1 == r2 {
-                        acc += uq_obs;
-                    }
-                    s_mat[(r1, r2)] = acc;
-                }
-            }
-
-            let llt = s_mat
-                .cholesky(Side::Lower)
-                .expect("Innovation covariance S must be symmetric positive definite");
-            let mut kt = hp_pt.transpose().to_owned();
-            llt.solve_in_place(kt.as_mut());
-
-            for i in 0..n {
-                let mut delta = 0.0;
-                for r in 0..m {
-                    delta += kt[(r, i)] * res[r];
-                }
-                mean[i] += delta;
-            }
-
-            for i in 0..n {
-                for j in 0..n {
-                    let mut sub = 0.0;
-                    for r in 0..m {
-                        sub += kt[(r, i)] * hp_pt[(j, r)];
-                    }
-                    cov[(i, j)] -= sub;
-                }
-            }
-        }
-
-        if t2 == tp {
-            for idx in 0..nbau {
-                fused_mean[idx] = mean[idx];
-                fused_sd[idx] = cov[(idx, idx)].sqrt();
-            }
-            fused_bias = mean[nf];
-            fused_bias_sd = cov[(nf, nf)];
-        }
+        // SIMD GEMM: P_cur = P_pred - K * HP_pred
+        p_cur.copy_from(&p_pred);
+        matmul(
+            p_cur.as_mut(),
+            Accum::Add,
+            k_mat.as_ref(),
+            hp_pred.as_ref(),
+            -1.0,
+            Par::Seq,
+        );
     }
+
+    // Extract target pixels and central bias pixel
+    let mut target_mean = Vec::with_capacity(n_kp);
+    let mut target_sd = Vec::with_capacity(n_kp);
+    for idx in 0..n_kp {
+        target_mean.push(x_cur[idx]);
+        target_sd.push(p_cur[(idx, idx)].max(0.0).sqrt());
+    }
+
+    let bias_mean = x_cur[nf];
+    let bias_sd = p_cur[(nf, nf)].max(0.0).sqrt();
 
     WindowResult {
         target_ij,
-        bias_ij: coarse_ordered_ij[0],
-        fused_mean,
-        fused_sd,
-        fused_bias,
-        fused_bias_sd,
+        bias_ij: bias_ij_ordered[0],
+        target_mean,
+        target_sd,
+        bias_mean,
+        bias_sd,
     }
-}
-
-pub fn fuse_scene_parallel(inp: &FusionInputs<'_>, num_workers: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
-    let nwindows = inp.coarse_nx * inp.coarse_ny;
-    let mut windows = Vec::with_capacity(nwindows);
-    for k in 1..=inp.coarse_nx {
-        for l in 1..=inp.coarse_ny {
-            windows.push((k, l));
-        }
-    }
-
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(num_workers.max(1))
-        .build()
-        .expect("Failed to construct Rayon thread pool");
-
-    let results: Vec<WindowResult> = pool.install(|| {
-        windows
-            .par_iter()
-            .map(|&(k, l)| solve_window(k, l, inp))
-            .collect()
-    });
-
-    let fine_len = inp.fine_nx * inp.fine_ny;
-    let coarse_len = inp.coarse_nx * inp.coarse_ny;
-    let mut fused_image = vec![0.0f64; fine_len];
-    let mut fused_sd_image = vec![0.0f64; fine_len];
-    let mut fused_bias_image = vec![0.0f64; coarse_len];
-    let mut fused_bias_sd_image = vec![0.0f64; coarse_len];
-
-    for res in results {
-        for (idx, &[ti, tj]) in res.target_ij.iter().enumerate() {
-            let flat = (ti - 1) * inp.fine_ny + (tj - 1);
-            fused_image[flat] = res.fused_mean[idx];
-            fused_sd_image[flat] = res.fused_sd[idx];
-        }
-        let bflat = (res.bias_ij[0] - 1) * inp.coarse_ny + (res.bias_ij[1] - 1);
-        fused_bias_image[bflat] = res.fused_bias;
-        fused_bias_sd_image[bflat] = res.fused_bias_sd;
-    }
-
-    (fused_image, fused_sd_image, fused_bias_image, fused_bias_sd_image)
 }

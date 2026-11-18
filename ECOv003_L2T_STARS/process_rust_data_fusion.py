@@ -7,7 +7,8 @@ from typing import Optional
 
 import numpy as np
 import rasterio
-from scipy.ndimage import zoom
+from rasterio.enums import Resampling
+from rasterio.warp import reproject
 
 from . import _stars_rust
 
@@ -242,9 +243,21 @@ def process_rust_data_fusion(
         prior_flag[coarse_valid > 0] = False
         prior_flag[fine_pixels > 0] = False
 
-    # Cubic-spline resample log(sqrt(sp_var)) to fine grid
-    zoom_ratio = fine_nx / coarse_nx
-    sp_rs = zoom(np.log(np.sqrt(sp_var)), zoom=zoom_ratio, order=3)
+    # GDAL cubicspline resample log(sqrt(sp_var)) to fine grid (matches Rasters.resample method=:cubicspline)
+    src_log_sd = np.log(np.sqrt(sp_var)).T.astype(np.float64)
+    sp_rs_yx = np.full((fine_ny, fine_nx), np.nan, dtype=np.float64)
+    reproject(
+        source=src_log_sd,
+        destination=sp_rs_yx,
+        src_transform=coarse_meta["transform"],
+        src_crs=coarse_meta["profile"]["crs"],
+        dst_transform=fine_meta["transform"],
+        dst_crs=fine_meta["profile"]["crs"],
+        resampling=Resampling.cubicspline,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
+    )
+    sp_rs = sp_rs_yx.T
     if np.any(np.isnan(sp_rs)):
         sp_rs[np.isnan(sp_rs)] = np.nanmean(sp_rs)
     cov_scale = np.ascontiguousarray(np.exp(sp_rs))
