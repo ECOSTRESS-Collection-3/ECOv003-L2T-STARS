@@ -4,6 +4,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import numpy as np
+
 
 def test_python() -> list[str]:
     """Run import and dummy callable tests for the Python environment."""
@@ -14,7 +16,6 @@ def test_python() -> list[str]:
     failed = []
     package_path = Path(ECOv003_L2T_STARS.__file__).parent
 
-    # Test dynamic imports
     for module in pkgutil.iter_modules([str(package_path)]):
         module_name = f"ECOv003_L2T_STARS.{module.name}"
         try:
@@ -25,7 +26,6 @@ def test_python() -> list[str]:
             print(msg)
             failed.append(msg)
 
-    # Test basic callables
     try:
         parsed = parse_runconfig("<input><scalar name='smoke'>ok</scalar></input>")
         assert parsed["smoke"] == "ok"
@@ -41,8 +41,30 @@ def test_python() -> list[str]:
     return failed
 
 
+def test_rust() -> list[str]:
+    """Run smoke test checks against the compiled _stars_rust extension."""
+    failed = []
+    try:
+        from ECOv003_L2T_STARS import _stars_rust
+
+        status = _stars_rust.smoke_test()
+        assert "_stars_rust active" in status
+        print(f"OK    Rust extension: {status}")
+
+        stack = np.ones((4, 4, 10), dtype=np.float64)
+        var = _stars_rust.estimate_spatial_variance(stack, 490.0, 70.0)
+        assert var.shape == (4, 4)
+        print("OK    Rust spatial variance kernel")
+    except Exception as e:
+        msg = f"FAIL  Rust extension smoke test -> {e}"
+        print(msg)
+        failed.append(msg)
+
+    return failed
+
+
 def test_julia() -> list[str]:
-    """Run smoke test script in the Julia environment."""
+    """Run smoke test script in the optional legacy Julia environment."""
     failed = []
     base_dir = Path(__file__).parent
     julia_script = base_dir / "julia_smoke_test.jl"
@@ -52,7 +74,7 @@ def test_julia() -> list[str]:
             ["julia", f"--project={base_dir}", str(julia_script)],
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=300,
         )
         if result.stdout:
             print(result.stdout.rstrip())
@@ -69,11 +91,11 @@ def test_julia() -> list[str]:
 
 
 def test() -> int:
-    """Run both Python and Julia smoke tests and return an exit status code."""
+    """Run Python and Rust smoke tests (no Julia runtime required) and return an exit status code."""
     failed = []
 
     failed.extend(test_python())
-    failed.extend(test_julia())
+    failed.extend(test_rust())
 
     if failed:
         print(f"\n{len(failed)} smoke test failure(s)")

@@ -3,10 +3,7 @@ import shutil
 from datetime import datetime, date
 from os import remove
 from os.path import basename, exists
-from typing import Union
-import logging
-
-import numpy as np
+from typing import Literal, Union
 
 import colored_logging as cl
 from rasters import Raster
@@ -21,11 +18,89 @@ from .constants import *
 from .generate_model_state_tile_date_directory import generate_model_state_tile_date_directory
 from .generate_STARS_inputs import generate_STARS_inputs
 from .generate_filename import generate_filename
-from .process_julia_data_fusion import process_julia_data_fusion
+from .process_rust_data_fusion import process_rust_data_fusion
 
 from .prior import Prior
 
 logger = logging.getLogger(__name__)
+
+
+def _run_data_fusion(
+    backend: Literal["rust", "julia"],
+    *,
+    tile: str,
+    coarse_cell_size: int,
+    fine_cell_size: int,
+    VIIRS_start_date: date,
+    VIIRS_end_date: date,
+    HLS_start_date: date,
+    HLS_end_date: date,
+    downsampled_directory: str,
+    product_name: str,
+    posterior_filename: str,
+    posterior_UQ_filename: str,
+    posterior_flag_filename: str,
+    posterior_bias_filename: str,
+    posterior_bias_UQ_filename: str,
+    prior_filename: str = None,
+    prior_UQ_filename: str = None,
+    prior_bias_filename: str = None,
+    prior_bias_UQ_filename: str = None,
+    initialize_julia: bool = False,
+    threads: Union[int, str] = "auto",
+    num_workers: int = 4,
+) -> None:
+    """Dispatch STARS data fusion to the selected backend ('rust' default or legacy 'julia')."""
+    if backend == "rust":
+        process_rust_data_fusion(
+            tile=tile,
+            coarse_cell_size=coarse_cell_size,
+            fine_cell_size=fine_cell_size,
+            VIIRS_start_date=VIIRS_start_date,
+            VIIRS_end_date=VIIRS_end_date,
+            HLS_start_date=HLS_start_date,
+            HLS_end_date=HLS_end_date,
+            downsampled_directory=downsampled_directory,
+            product_name=product_name,
+            posterior_filename=posterior_filename,
+            posterior_UQ_filename=posterior_UQ_filename,
+            posterior_flag_filename=posterior_flag_filename,
+            posterior_bias_filename=posterior_bias_filename,
+            posterior_bias_UQ_filename=posterior_bias_UQ_filename,
+            prior_filename=prior_filename,
+            prior_UQ_filename=prior_UQ_filename,
+            prior_bias_filename=prior_bias_filename,
+            prior_bias_UQ_filename=prior_bias_UQ_filename,
+            num_workers=num_workers,
+        )
+    elif backend == "julia":
+        from .process_julia_data_fusion import process_julia_data_fusion
+
+        process_julia_data_fusion(
+            tile=tile,
+            coarse_cell_size=coarse_cell_size,
+            fine_cell_size=fine_cell_size,
+            VIIRS_start_date=VIIRS_start_date,
+            VIIRS_end_date=VIIRS_end_date,
+            HLS_start_date=HLS_start_date,
+            HLS_end_date=HLS_end_date,
+            downsampled_directory=downsampled_directory,
+            product_name=product_name,
+            posterior_filename=posterior_filename,
+            posterior_UQ_filename=posterior_UQ_filename,
+            posterior_flag_filename=posterior_flag_filename,
+            posterior_bias_filename=posterior_bias_filename,
+            posterior_bias_UQ_filename=posterior_bias_UQ_filename,
+            prior_filename=prior_filename,
+            prior_UQ_filename=prior_UQ_filename,
+            prior_bias_filename=prior_bias_filename,
+            prior_bias_UQ_filename=prior_bias_UQ_filename,
+            initialize_julia=initialize_julia,
+            threads=threads,
+            num_workers=num_workers,
+        )
+    else:
+        raise ValueError(f"Unsupported STARS fusion backend: {backend!r} (expected 'rust' or 'julia')")
 
 
 def copy_prior_to_posterior(
@@ -52,6 +127,7 @@ def copy_prior_to_posterior(
     for posterior, prior in pairings:
         image = Raster.open(prior)
         image.to_geotiff(posterior, use_compression=False, include_preview=False)
+
 
 def process_STARS_product(
     tile: str,
@@ -82,66 +158,25 @@ def process_STARS_product(
     remove_input_staging: bool = True,
     remove_prior: bool = REMOVE_PRIOR,
     remove_posterior: bool = REMOVE_POSTERIOR,
+    backend: Literal["rust", "julia"] = FUSION_BACKEND,
     initialize_julia: bool = False,
     threads: Union[int, str] = "auto",
     num_workers: int = 4,
 ):
     """
     Orchestrates the generation of the L2T_STARS product for a given tile and date.
-
-    This function handles the staging of input data, execution of the Julia data
-    fusion model for both NDVI and albedo, and the final assembly, metadata
-    writing, and archiving of the L2T_STARS product. It also manages cleanup
-    of intermediate and prior files.
-
-    Args:
-        tile (str): The HLS tile ID.
-        date_UTC (date): The UTC date for the current L2T_STARS product.
-        time_UTC (datetime): The UTC time for the current L2T_STARS product.
-        build (str): The build ID of the PGE.
-        product_counter (int): The product counter for the current run.
-        HLS_start_date (date): The start date for HLS data used in fusion.
-        HLS_end_date (date): The end date for HLS data used in fusion.
-        VIIRS_start_date (date): The start date for VIIRS data used in fusion.
-        VIIRS_end_date (date): The end date for VIIRS data used in fusion.
-        NDVI_resolution (int): The resolution of the coarse NDVI data.
-        albedo_resolution (int): The resolution of the coarse albedo data.
-        target_resolution (int): The desired output resolution of the fused product.
-        working_directory (str): The main working directory.
-        model_directory (str): Directory for model state files (priors, posteriors).
-        input_staging_directory (str): Directory for temporary input images for Julia.
-        L2T_STARS_granule_directory (str): Temporary directory for the unzipped product.
-        L2T_STARS_zip_filename (str): Final path for the zipped L2T_STARS product.
-        L2T_STARS_browse_filename (str): Final path for the browse image.
-        metadata (dict): Dictionary containing product metadata.
-        prior (Prior): An object containing information about the prior product.
-        HLS_connection (HLS2Connection): An initialized HLS data connection object.
-        NDVI_VCD43NRT_connection (VCD43NRT): An initialized VIIRS processor.
-        albedo_VCD43NRT_connection (VCD43NRT): An initialized VIIRS processor.
-        using_prior (bool, optional): If True, use the prior product in fusion. Defaults to False.
-        calibrate_fine (bool, optional): If True, calibrate fine images to coarse images.
-                                         Defaults to False.
-        remove_input_staging (bool, optional): If True, remove the input staging directory
-                                                after processing. Defaults to True.
-        remove_prior (bool, optional): If True, remove prior intermediate files after use.
-                                       Defaults to True.
-        remove_posterior (bool, optional): If True, remove posterior intermediate files after
-                                           product generation. Defaults to True.
-        initialize_julia (bool, optional): If True, create a julia environment to run STARS in
-                                           as opposed to the default julia env. Defaults to False.
-        threads (Union[int, str], optional): Number of Julia threads to use, or "auto".
-                                            Defaults to "auto".
-        num_workers (int, str): Number of Julia workers for distributed processing.
-                                     Defaults to 4.
-
-    Raises:
-        BlankOutput: If any of the final fused output rasters (NDVI, albedo, UQ, flag) are empty.
     """
+    if backend not in ("rust", "julia"):
+        raise ValueError(f"Unsupported STARS fusion backend: {backend!r} (expected 'rust' or 'julia')")
+
     # Get the target geometries for coarse NDVI and albedo based on the HLS grid
     NDVI_coarse_geometry = HLS_connection.grid(tile=tile, cell_size=NDVI_resolution)
     albedo_coarse_geometry = HLS_connection.grid(tile=tile, cell_size=albedo_resolution)
 
-    logger.info(f"Processing the L2T_STARS product at tile {cl.place(tile)} for date {cl.time(date_UTC)}")
+    logger.info(
+        f"Processing the L2T_STARS product at tile {cl.place(tile)} for date {cl.time(date_UTC)} "
+        f"(backend={cl.val(backend)})"
+    )
 
     # Define and create the directory for storing posterior model state files
     posterior_tile_date_directory = generate_model_state_tile_date_directory(
@@ -170,7 +205,6 @@ def process_STARS_product(
     )
 
     # --- Process NDVI Data Fusion ---
-    # Define output filenames for NDVI posterior products
     posterior_NDVI_filename = generate_filename(
         directory=posterior_tile_date_directory,
         variable="NDVI",
@@ -216,11 +250,9 @@ def process_STARS_product(
     )
     logger.info(f"Posterior NDVI bias UQ file: {cl.file(posterior_NDVI_bias_UQ_filename)}")
 
-    # Run Julia data fusion for NDVI, conditionally including prior data
+    # Run STARS data fusion for NDVI, conditionally including prior data
     if using_prior:
         if prior.prior_date_UTC == date_UTC:
-            # WARNING: prior_NDVI_flag_filename is using Apache Zip VFS syntax, and is not suitable
-            #  for use with Julia or GDAL
             copy_prior_to_posterior(
                 posterior_filename=posterior_NDVI_filename,
                 posterior_UQ_filename=posterior_NDVI_UQ_filename,
@@ -234,8 +266,9 @@ def process_STARS_product(
                 prior_bias_UQ_filename=prior.prior_NDVI_bias_UQ_filename,
             )
         else:
-            logger.info("Running Julia data fusion for NDVI with prior data.")
-            process_julia_data_fusion(
+            logger.info(f"Running {backend} data fusion for NDVI with prior data.")
+            _run_data_fusion(
+                backend,
                 tile=tile,
                 coarse_cell_size=NDVI_resolution,
                 fine_cell_size=target_resolution,
@@ -259,8 +292,9 @@ def process_STARS_product(
                 num_workers=num_workers,
             )
     else:
-        logger.info("Running Julia data fusion for NDVI without prior data.")
-        process_julia_data_fusion(
+        logger.info(f"Running {backend} data fusion for NDVI without prior data.")
+        _run_data_fusion(
+            backend,
             tile=tile,
             coarse_cell_size=NDVI_resolution,
             fine_cell_size=target_resolution,
@@ -298,7 +332,6 @@ def process_STARS_product(
     NDVI_flag = Raster.open(posterior_NDVI_flag_filename)
 
     # --- Process Albedo Data Fusion ---
-    # Define output filenames for albedo posterior products
     posterior_albedo_filename = generate_filename(
         directory=posterior_tile_date_directory,
         variable="albedo",
@@ -344,11 +377,9 @@ def process_STARS_product(
     )
     logger.info(f"Posterior albedo bias UQ file: {cl.file(posterior_albedo_bias_UQ_filename)}")
 
-    # Run Julia data fusion for albedo, conditionally including prior data
+    # Run STARS data fusion for albedo, conditionally including prior data
     if using_prior:
         if prior.prior_date_UTC == date_UTC:
-            # WARNING: prior_NDVI_flag_filename is using Apache Zip VFS syntax, and is not suitable
-            #  for use with Julia or GDAL
             copy_prior_to_posterior(
                 posterior_filename=posterior_albedo_filename,
                 posterior_UQ_filename=posterior_albedo_UQ_filename,
@@ -362,8 +393,9 @@ def process_STARS_product(
                 prior_bias_UQ_filename=prior.prior_albedo_bias_UQ_filename,
             )
         else:
-            logger.info("Running Julia data fusion for albedo with prior data.")
-            process_julia_data_fusion(
+            logger.info(f"Running {backend} data fusion for albedo with prior data.")
+            _run_data_fusion(
+                backend,
                 tile=tile,
                 coarse_cell_size=albedo_resolution,
                 fine_cell_size=target_resolution,
@@ -387,8 +419,9 @@ def process_STARS_product(
                 num_workers=num_workers,
             )
     else:
-        logger.info("Running Julia data fusion for albedo without prior data.")
-        process_julia_data_fusion(
+        logger.info(f"Running {backend} data fusion for albedo without prior data.")
+        _run_data_fusion(
+            backend,
             tile=tile,
             coarse_cell_size=albedo_resolution,
             fine_cell_size=target_resolution,
@@ -426,7 +459,6 @@ def process_STARS_product(
     albedo_flag = Raster.open(posterior_albedo_flag_filename)
 
     # --- Validate Output and Create Final Product ---
-    # Check if the output rasters are valid (not None, indicating a problem during Julia processing)
     if NDVI is None:
         raise BlankOutput("Unable to generate STARS NDVI")
     if NDVI_UQ is None:
@@ -477,17 +509,14 @@ def process_STARS_product(
     )
     shutil.rmtree(L2T_STARS_granule_directory)
 
-    # Re-check and regenerate browse image if it somehow didn't generate (e.g. if the granule dir was already deleted)
     if not exists(L2T_STARS_browse_filename):
         logger.info(
             f"Browse image not found after initial creation attempt. Regenerating: {cl.file(L2T_STARS_browse_filename)}"
         )
-        # Re-load granule from zip to create browse image if necessary
         granule_for_browse = L2TSTARS(L2T_STARS_zip_filename)
         granule_for_browse.write_browse_image(PNG_filename=L2T_STARS_browse_filename)
 
-    # Re-write posterior files (often done to ensure proper compression/color maps after processing)
-    # This step might be redundant if Julia already writes them correctly, but ensures consistency.
+    # Re-write posterior files to ensure consistent compression/colormaps
     logger.info(f"Re-writing posterior NDVI: {posterior_NDVI_filename}")
     Raster.open(posterior_NDVI_filename, cmap=NDVI_COLORMAP).to_geotiff(
         posterior_NDVI_filename
@@ -537,7 +566,6 @@ def process_STARS_product(
             shutil.rmtree(input_staging_directory, ignore_errors=True)
 
     if using_prior and remove_prior:
-        # Remove prior intermediate files only if they exist
         prior_files = [
             prior.prior_NDVI_filename,
             prior.prior_NDVI_UQ_filename,
@@ -554,7 +582,6 @@ def process_STARS_product(
                 remove(f)
 
     if remove_posterior:
-        # Remove posterior intermediate files only if they exist
         posterior_files = [
             posterior_NDVI_filename,
             posterior_NDVI_UQ_filename,

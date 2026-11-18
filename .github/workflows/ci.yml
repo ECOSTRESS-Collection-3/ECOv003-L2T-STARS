@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - rust
   pull_request:
     branches:
       - main
@@ -18,23 +19,45 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3  # This is already the latest version
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4  # This is also the latest version
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry & build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Install build & test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[dev]  # Use dev to install pytest
+          pip install "maturin>=1.7,<2.0" pytest pytest-cov
 
-      - name: Run tests
-        run: |
-          pytest
+      - name: Run Rust kernel unit tests
+        run: make test-rust
+
+      - name: Build and install package with maturin
+        run: make install
+
+      - name: Run Python unit tests
+        run: pytest
         env:
           PYTHONPATH: .
           EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
           EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
           SKIP_EARTHDATA_LOGIN: "true"
+
+      - name: Run package smoke tests (Python + Rust)
+        run: ECOv003-L2T-STARS test

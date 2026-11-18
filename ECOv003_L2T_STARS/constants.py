@@ -25,6 +25,7 @@ GEOS5FP_PRODUCTS_DIRECTORY = "GEOS5FP_products"
 STARS_DOWNSAMPLED_DIRECTORY = "VCD43NRT_DOWNSAMPLED_products"
 
 # Processing parameters
+FUSION_BACKEND = "rust"  # Default STARS data fusion backend ("rust" or "julia")
 VIIRS_GIVEUP_DAYS = 4  # Number of days to give up waiting for VIIRS data
 SPINUP_DAYS = 7  # Spin-up period for time-series analysis
 TARGET_RESOLUTION = 70  # Target output resolution in meters
@@ -34,7 +35,7 @@ USE_SPATIAL = False  # Flag for using spatial interpolation (currently unused)
 VCD43NRT_MISSION_PRIORITY = ("SNPP", "JPSS1", "JPSS2")
 CALIBRATE_FINE = False  # Flag for calibrating fine resolution data to coarse
 THREADS = "auto"  # Number of threads to use, 'auto' for automatic detection
-WORKERS = 4  # Number of worker processes for parallel processing
+WORKERS = 4  # Number of worker processes/threads for parallel processing
 OVERWRITE = False  # Flag to overwrite existing files
 SOURCES_ONLY = False  # Flag to only process sources without further analysis
 REMOVE_INPUT_STAGING = True  # Flag to remove input staging files after processing

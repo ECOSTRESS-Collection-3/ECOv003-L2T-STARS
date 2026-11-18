@@ -4,8 +4,9 @@ import sys
 from datetime import date, timedelta
 from os import makedirs
 from os.path import join, exists, basename
-from typing import Sequence, Union
-import logging
+from typing import Literal, Sequence, Union
+import urllib
+
 import colored_logging as cl
 logging.getLogger("numexpr").setLevel(logging.WARNING)
 import pandas as pd
@@ -13,7 +14,6 @@ from dateutil import parser
 
 from sentinel_tiles import sentinel_tiles
 
-# Custom modules for Harmonized Landsat Sentinel (HLS) and ECOSTRESS data
 from harmonized_landsat_sentinel import (
     CMRServerUnreachable,
     HLS2Connection,
@@ -29,7 +29,6 @@ from ECOv003_exit_codes import *
 
 from ECOv002_granules import L2TLSTE as ECOv002L2TLSTE
 from ECOv003_granules import L2TLSTE
-import urllib
 
 from VCD43NRT.exceptions import (
     CMRServerUnreachable as VCD43NRTCMRServerUnreachable,
@@ -49,6 +48,7 @@ from .retrieve_STARS_sources import retrieve_STARS_sources
 
 logger = logging.getLogger(__name__)
 
+
 def L2T_STARS(
     runconfig_filename: str,
     date_UTC: Union[date, str] = None,
@@ -62,58 +62,21 @@ def L2T_STARS(
     remove_input_staging: bool = REMOVE_INPUT_STAGING,
     remove_prior: bool = REMOVE_PRIOR,
     remove_posterior: bool = REMOVE_POSTERIOR,
+    backend: Literal["rust", "julia"] = FUSION_BACKEND,
     initialize_julia: bool = False,
     threads: Union[int, str] = THREADS,
     num_workers: int = WORKERS,
-    overwrite: bool = OVERWRITE, # New parameter for overwriting existing files
+    overwrite: bool = OVERWRITE,
 ) -> int:
     """
     ECOSTRESS Collection 3 L2T_STARS PGE (Product Generation Executive).
-
-    This function serves as the main entry point for the L2T_STARS processing.
-    It orchestrates the entire workflow, including reading the run-config,
-    connecting to data servers, retrieving source data, performing data fusion
-    (via Julia subprocess), generating the final product, and handling cleanup.
-
-    Args:
-        runconfig_filename (str): Path to the XML run-configuration file.
-        date_UTC (Union[date, str], optional): The target UTC date for product generation.
-                                              If None, it's derived from the input L2T LSTE granule.
-        spinup_days (int, optional): Number of days for the VIIRS time-series spin-up.
-                                     Defaults to DEFAULT_SPINUP_DAYS (7).
-        target_resolution (int, optional): The desired output resolution in meters.
-                                           Defaults to DEFAULT_TARGET_RESOLUTION (70).
-        NDVI_resolution (int, optional): The resolution of the coarse NDVI data.
-                                         Defaults to DEFAULT_NDVI_RESOLUTION (490).
-        albedo_resolution (int, optional): The resolution of the coarse albedo data.
-                                           Defaults to DEFAULT_ALBEDO_RESOLUTION (980).
-        viirs_mission_priority (Union[str, Sequence[str]], optional): VIIRS
-            missions to try in order for each observation date.
-        calibrate_fine (bool, optional): If True, calibrate fine resolution HLS data to
-                                         coarse resolution VIIRS data. Defaults to DEFAULT_CALIBRATE_FINE (False).
-        sources_only (bool, optional): If True, only retrieve source data and exit,
-                                       without performing data fusion. Defaults to False.
-        remove_input_staging (bool, optional): If True, remove the input staging directory
-                                                after processing. Defaults to True.
-        remove_prior (bool, optional): If True, remove prior intermediate files after use.
-                                       Defaults to True.
-        remove_posterior (bool, optional): If True, remove posterior intermediate files after
-                                           product generation. Defaults to True.
-        initialize_julia (bool, optional): Initialize the Julia environment for STARS data fusion.
-        threads (Union[int, str], optional): Number of Julia threads to use, or "auto".
-                                            Defaults to "auto".
-        num_workers (int, optional): Number of Julia workers for distributed processing.
-                                     Defaults to 4.
-        overwrite (bool, optional): If True, existing output files will be overwritten.
-                                    Defaults to False.
-
-    Returns:
-        int: An exit code indicating the success or failure of the PGE execution.
-             (e.g., SUCCESS_EXIT_CODE, AUXILIARY_SERVER_UNREACHABLE, DOWNLOAD_FAILED, etc.)
     """
-    exit_code = SUCCESS_EXIT_CODE  # Initialize exit code to success
+    exit_code = SUCCESS_EXIT_CODE
 
     try:
+        if backend not in ("rust", "julia"):
+            raise ValueError(f"Unsupported STARS fusion backend: {backend!r} (expected 'rust' or 'julia')")
+
         # Load and parse the run-configuration file
         runconfig = L2TSTARSConfig(runconfig_filename)
 
@@ -121,11 +84,12 @@ def L2T_STARS(
         working_directory = runconfig.working_directory
         granule_ID = runconfig.granule_ID
         log_filename = join(working_directory, "log", f"{granule_ID}.log")
-        cl.configure(filename=log_filename)  # Reconfigure logger with the specific log file
+        cl.configure(filename=log_filename)
 
         logger.info(f"L2T_STARS PGE ({cl.val(__version__)})")
         logger.info(f"L2T_STARS run-config: {cl.file(runconfig_filename)}")
         logger.info(f"Granule ID: {cl.val(granule_ID)}")
+        logger.info(f"Fusion backend: {cl.val(backend)}")
 
         # Extract paths from the run-config
         L2T_STARS_granule_directory = runconfig.L2T_STARS_granule_directory
@@ -145,7 +109,6 @@ def L2T_STARS(
             logger.info(f"Found existing L2T STARS file: {L2T_STARS_zip_filename}")
             logger.info(f"Found existing L2T STARS preview: {L2T_STARS_browse_filename}")
             logger.info("Overwrite option is enabled, proceeding with reprocessing.")
-
 
         logger.info(f"Working directory: {cl.dir(working_directory)}")
         logger.info(f"Log file: {cl.file(log_filename)}")
@@ -176,21 +139,16 @@ def L2T_STARS(
                 f"L2T LSTE file does not exist: {L2T_LSTE_filename}"
             )
 
-        # Load the L2T_LSTE granule to get geometry and base metadata
-        # L2T_LSTE_granule = L2TLSTE(L2T_LSTE_filename)
-        
         # Determine collection from the L2T LSTE filename
         collection = basename(L2T_LSTE_filename).split("_")[0]
-        
+
         if collection == "ECOv003":
-            # Load the collection 3 L2T LSTE granule to extract necessary metadata if not provided
             L2T_LSTE_granule = L2TLSTE(L2T_LSTE_filename)
         elif collection == "ECOv002":
-            # Load the collection 2 L2T LSTE granule to extract necessary metadata if not provided
             L2T_LSTE_granule = ECOv002L2TLSTE(L2T_LSTE_filename)
         else:
             raise ValueError(f"Unsupported collection in filename: {L2T_LSTE_filename}")
-       
+
         geometry = L2T_LSTE_granule.geometry
         metadata = L2T_LSTE_granule.metadata_dict
         metadata["StandardMetadata"]["PGEName"] = "L2T_STARS"
@@ -198,7 +156,6 @@ def L2T_STARS(
         input_pointer = basename(L2T_LSTE_filename)
         metadata["StandardMetadata"]["InputPointer"] = input_pointer
 
-        # Update product names in metadata
         short_name = L2T_STARS_SHORT_NAME
         logger.info(f"L2T STARS short name: {cl.val(short_name)}")
         metadata["StandardMetadata"]["ShortName"] = short_name
@@ -207,27 +164,21 @@ def L2T_STARS(
         logger.info(f"L2T STARS long name: {cl.val(long_name)}")
         metadata["StandardMetadata"]["LongName"] = long_name
 
-        # Update auxiliary input pointers in metadata and remove irrelevant sections
         metadata["StandardMetadata"]["AuxiliaryInputPointer"] = "HLS,VIIRS"
         if "ProductMetadata" in metadata:
-            metadata["ProductMetadata"].pop("AuxiliaryNWP", None)  # Safe removal
+            metadata["ProductMetadata"].pop("AuxiliaryNWP", None)
             metadata["ProductMetadata"].pop("NWPSource", None)
 
-        # Determine the target date for processing
         time_UTC = L2T_LSTE_granule.time_UTC
         logger.info(f"ECOSTRESS overpass time: {cl.time(f'{time_UTC:%Y-%m-%d %H:%M:%S} UTC')}")
 
         if date_UTC is None:
-            # Use date from L2T granule if not provided via command line
             date_UTC = L2T_LSTE_granule.date_UTC
             logger.info(f"ECOSTRESS overpass date: {cl.time(f'{date_UTC:%Y-%m-%d} UTC')}")
         else:
             logger.warning(f"Over-riding target date from command line to: {date_UTC}")
             if isinstance(date_UTC, str):
                 date_UTC = parser.parse(date_UTC).date()
-
-        # TODO: Add a check if the L2T LSTE granule is day-time and halt L2T STARS run if it's not.
-        # This is a critical step to ensure valid scientific output.
 
         # Load prior data if specified in the run-config
         L2T_STARS_prior_filename = runconfig.L2T_STARS_prior_filename
@@ -240,7 +191,6 @@ def L2T_STARS(
         using_prior = prior.using_prior
         prior_date_UTC = prior.prior_date_UTC
 
-        # Define various product and download directories
         products_directory = join(working_directory, STARS_PRODUCTS_DIRECTORY)
         logger.info(f"STARS products directory: {cl.dir(products_directory)}")
         HLS_download_directory = join(sources_directory, HLS_DOWNLOAD_DIRECTORY)
@@ -268,7 +218,6 @@ def L2T_STARS(
         DOWNSAMPLED_products_directory = join(sources_directory, STARS_DOWNSAMPLED_DIRECTORY)
         logger.info(f"DOWNSAMPLED products directory: {cl.dir(DOWNSAMPLED_products_directory)}")
 
-        # Re-check for existing product (double-check in case another process created it) with overwrite option
         if not overwrite and exists(L2T_STARS_zip_filename):
             logger.info(
                 f"Found L2T STARS product zip: {cl.file(L2T_STARS_zip_filename)}. Overwrite is False, returning."
@@ -279,14 +228,11 @@ def L2T_STARS(
                 f"Found L2T STARS product zip: {cl.file(L2T_STARS_zip_filename)}. Overwrite is True, proceeding."
             )
 
-
-        # Initialize HLS data connection
         logger.info(f"Connecting to CMR Search server: {CMR_SEARCH_URL}")
         try:
             HLS_connection = HLS2Connection(
                 working_directory=working_directory,
                 download_directory=HLS_download_directory,
-                # products_directory=HLS_products_directory,
                 target_resolution=target_resolution,
             )
         except CMRServerUnreachable as e:
@@ -295,7 +241,6 @@ def L2T_STARS(
                 f"Unable to connect to CMR Search server: {CMR_SEARCH_URL}"
             )
 
-        # Check if the tile is on land (HLS tiles cover land and ocean, STARS is for land)
         if not sentinel_tiles.land(tile=tile):
             raise LandFilter(f"Sentinel tile {tile} is not on land. Skipping processing.")
 
@@ -336,31 +281,22 @@ def L2T_STARS(
         NDVI_VCD43NRT_connection = VCD43NRT_connection
         albedo_VCD43NRT_connection = VCD43NRT_connection
 
-        # Define date ranges for data retrieval and fusion
         end_date = date_UTC
-        # The start date of the BRDF-corrected VIIRS coarse time-series is 'spinup_days' before the target date
         VIIRS_start_date = end_date - timedelta(days=spinup_days)
-        # To produce the first BRDF-corrected image, raw VIIRS inputs are needed
-        # starting 16 days before the first coarse date.
         VIIRS_download_start_date = VIIRS_start_date - timedelta(days=16)
         VIIRS_end_date = end_date
 
-        # Define start date of HLS fine image input time-series
         if using_prior and prior_date_UTC and prior_date_UTC >= VIIRS_start_date:
-            # If a valid prior is used and its date is within or before the VIIRS start date,
-            # HLS inputs begin the day after the prior
             HLS_start_date = prior_date_UTC + timedelta(days=1)
         else:
-            # If no prior or prior is too old, HLS inputs begin on the same day as the VIIRS inputs
             HLS_start_date = VIIRS_start_date
-        HLS_end_date = end_date # HLS end date is always the same as the target date
+        HLS_end_date = end_date
 
         logger.info(
             f"Processing STARS HLS-VIIRS NDVI and albedo for tile {cl.place(tile)} from "
             f"{cl.time(VIIRS_start_date)} to {cl.time(end_date)}"
         )
 
-        # Get HLS listing to check for data availability
         try:
             HLS_listing = HLS_connection.listing(
                 tile=tile, start_UTC=HLS_start_date, end_UTC=HLS_end_date
@@ -374,7 +310,6 @@ def L2T_STARS(
                 f"Unable to scan Harmonized Landsat Sentinel server: {CMR_SEARCH_URL}"
             )
 
-        # Check for missing HLS Sentinel data
         missing_sentinel_dates = HLS_listing[HLS_listing.sentinel == "missing"].date_UTC
         if len(missing_sentinel_dates) > 0:
             raise AuxiliaryLatency(
@@ -382,7 +317,6 @@ def L2T_STARS(
                 f"{', '.join(missing_sentinel_dates)}"
             )
 
-        # Log available HLS Sentinel data
         sentinel_listing = HLS_listing[~pd.isna(HLS_listing.sentinel)][
             ["date_UTC", "sentinel"]
         ]
@@ -391,7 +325,6 @@ def L2T_STARS(
             sentinel_filename = sentinel_granule["meta"]["native-id"]
             logger.info(f"* {cl.time(list_date_utc)}: {cl.file(sentinel_filename)}")
 
-        # Check for missing HLS Landsat data
         missing_landsat_dates = HLS_listing[HLS_listing.landsat == "missing"].date_UTC
         if len(missing_landsat_dates) > 0:
             raise AuxiliaryLatency(
@@ -399,7 +332,6 @@ def L2T_STARS(
                 f"{', '.join(missing_landsat_dates)}"
             )
 
-        # Log available HLS Landsat data
         landsat_listing = HLS_listing[~pd.isna(HLS_listing.landsat)][
             ["date_UTC", "landsat"]
         ]
@@ -408,7 +340,6 @@ def L2T_STARS(
             landsat_filename = landsat_granule["meta"]["native-id"]
             logger.info(f"* {cl.time(list_date_utc)}: {cl.file(landsat_filename)}")
 
-        # If only sources are requested, retrieve them and exit
         if sources_only:
             logger.info("Sources only flag enabled. Retrieving source data.")
             retrieve_STARS_sources(
@@ -421,7 +352,6 @@ def L2T_STARS(
                 HLS_connection=HLS_connection,
                 VCD43NRT_connection=NDVI_VCD43NRT_connection,
             )
-            # Regenerate inputs to ensure all files are staged, even if not fused
             NDVI_coarse_geometry = HLS_connection.grid(tile=tile, cell_size=NDVI_resolution)
             albedo_coarse_geometry = HLS_connection.grid(tile=tile, cell_size=albedo_resolution)
 
@@ -444,7 +374,6 @@ def L2T_STARS(
                 calibrate_fine=calibrate_fine,
             )
         else:
-            # Otherwise, proceed with full product processing
             process_STARS_product(
                 tile=tile,
                 date_UTC=date_UTC,
@@ -474,6 +403,7 @@ def L2T_STARS(
                 remove_input_staging=remove_input_staging,
                 remove_prior=remove_prior,
                 remove_posterior=remove_posterior,
+                backend=backend,
                 initialize_julia=initialize_julia,
                 threads=threads,
                 num_workers=num_workers,
@@ -499,7 +429,7 @@ def L2T_STARS(
         exit_code = DOWNLOAD_FAILED
     except HLSNotAvailable as exception:
         logger.exception(exception)
-        exit_code = LAND_FILTER  # This might indicate no HLS data for the tile, similar to land filter
+        exit_code = LAND_FILTER
     except (HLSSentinelMissing, HLSLandsatMissing, VCD43NRTVIIRSUnavailableError) as exception:
         logger.exception(exception)
         exit_code = AUXILIARY_LATENCY
@@ -507,11 +437,9 @@ def L2T_STARS(
         logger.info(exception)
         exit_code = LAND_FILTER
     except ECOSTRESSExitCodeException as exception:
-        # Catch custom ECOSTRESS exceptions and use their defined exit code
         logger.exception(exception)
         exit_code = exception.exit_code
     except Exception as exception:
-        # Catch any other unexpected exceptions
         logger.exception(exception)
         exit_code = UNCLASSIFIED_FAILURE_EXIT_CODE
 

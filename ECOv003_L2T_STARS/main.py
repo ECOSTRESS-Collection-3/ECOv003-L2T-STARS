@@ -10,10 +10,10 @@ from .smoke_test import (
     test as run_smoke_test,
     test_julia as run_test_julia,
     test_python as run_test_python,
+    test_rust as run_test_rust,
 )
 from .version import __version__
 
-# Initialize the logger for the module
 logger = logging.getLogger(__name__)
 
 
@@ -30,53 +30,43 @@ def _run_subtest(test_fn) -> int:
 def main():
     """
     Main function for parsing command-line arguments and running the L2T_STARS PGE.
-
-    This function uses `argparse` for robust command-line argument parsing,
-    providing a clear interface for users to specify the run-configuration file
-    and other optional parameters.
     """
-    # Fast-dispatch test commands before runconfig validation
+    # Fast-dispatch test and utility subcommands before runconfig validation
     first_arg = sys.argv[1] if len(sys.argv) > 1 else None
 
     if first_arg == "test":
         sys.exit(run_smoke_test())
     elif first_arg == "test-python":
         sys.exit(_run_subtest(run_test_python))
+    elif first_arg == "test-rust":
+        sys.exit(_run_subtest(run_test_rust))
     elif first_arg == "test-julia":
         sys.exit(_run_subtest(run_test_julia))
     elif first_arg == "install-julia":
         sys.exit(install_julia())
-    elif first_arg == "test":
-        sys.exit(run_smoke_test())
-    elif first_arg == "test-julia":   
-        sys.exit(_run_subtest(run_test_julia))
-    elif first_arg == "test-python":
-        sys.exit(_run_subtest(run_test_python))
 
     parser = argparse.ArgumentParser(
         description="ECOSTRESS Collection 3 L2T_STARS PGE for generating Tiled Auxiliary NDVI and Albedo products.",
-        formatter_class=argparse.RawTextHelpFormatter,  # Allows for more flexible help text formatting
+        formatter_class=argparse.RawTextHelpFormatter,
         epilog=f"L2T_STARS PGE Version: {__version__}\n\n"
         "Commands:\n"
-        "  test                 Run full Python and Julia smoke tests\n"
+        "  test                 Run Python and Rust extension smoke tests\n"
         "  test-python          Run Python-only import and dummy tests\n"
-        "  test-julia           Run Julia-only smoke tests\n\n"
+        "  test-rust            Run Rust (_stars_rust) extension smoke tests\n"
+        "  test-julia           Run optional legacy Julia smoke tests\n"
+        "  install-julia        Install optional legacy Julia runtime and packages\n\n"
         "Example usage:\n"
-        "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml\n"
-        "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --date 2023-01-15\n"
-        "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --sources-only\n"
-        "  python {sys.argv[0]} --runconfig /path/to/RunConfig.xml --overwrite\n"
-        "  python {sys.argv[0]} test-python\n",
+        f"  python {sys.argv[0]} /path/to/RunConfig.xml\n"
+        f"  python {sys.argv[0]} /path/to/RunConfig.xml --backend rust --num-workers 8\n"
+        f"  python {sys.argv[0]} /path/to/RunConfig.xml --backend julia\n"
+        f"  python {sys.argv[0]} test\n",
     )
 
-    # Positional argument for the runconfig file
     parser.add_argument(
         "runconfig",
         type=str,
         help="Path to the XML run-configuration file.",
     )
-
-    # Optional arguments
     parser.add_argument(
         "--date",
         type=str,
@@ -156,23 +146,29 @@ def main():
         help="Do NOT remove posterior intermediate files after product generation.",
     )
     parser.add_argument(
+        "--backend",
+        choices=("rust", "julia"),
+        default=FUSION_BACKEND,
+        help=f"STARS data fusion backend ('rust' default, 'julia' legacy). Defaults to {FUSION_BACKEND!r}.",
+    )
+    parser.add_argument(
         "--initialize-julia",
         action="store_true",
         dest="initialize_julia",
-        help="Initialize a julia environment before running julia.",
+        help="Initialize a julia environment before running legacy Julia backend.",
     )
     parser.add_argument(
         "--threads",
         type=str,
         default="auto",
-        help='Number of Julia threads to use, or "auto". Defaults to "auto".',
+        help='Number of Julia threads to use when --backend julia is set, or "auto". Defaults to "auto".',
         metavar="COUNT",
     )
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
-        help="Number of Julia workers for distributed processing. Defaults to 4.",
+        default=WORKERS,
+        help=f"Number of parallel worker threads/processes for data fusion. Defaults to {WORKERS}.",
         metavar="COUNT",
     )
     parser.add_argument(
@@ -180,7 +176,6 @@ def main():
         action="store_true",
         help="Reproduce the output files even if they already exist.",
     )
-
     parser.add_argument(
         "--version",
         action="version",
@@ -190,7 +185,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Call the main L2T_STARS processing function with parsed arguments
     exit_code = L2T_STARS(
         runconfig_filename=args.runconfig,
         date_UTC=args.date,
@@ -204,6 +198,7 @@ def main():
         remove_input_staging=args.remove_input_staging,
         remove_prior=args.remove_prior,
         remove_posterior=args.remove_posterior,
+        backend=args.backend,
         initialize_julia=args.initialize_julia,
         threads=args.threads,
         num_workers=args.num_workers,
