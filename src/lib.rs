@@ -3,7 +3,9 @@ pub mod kalman;
 pub mod sobol;
 pub mod spatial;
 
-use numpy::{PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods};
+use numpy::{
+    PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -34,7 +36,8 @@ fn estimate_spatial_variance<'py>(
 
     let agg_scale = (coarse_cell_size / fine_cell_size).round() as usize;
     let n_eff = compute_n_eff(agg_scale, 2.0, 1.5);
-    let sp_var = py.allow_threads(|| fast_var_est(slice, nx, ny, nt, n_eff, min_num_obs, default_var));
+    let sp_var =
+        py.allow_threads(|| fast_var_est(slice, nx, ny, nt, n_eff, min_num_obs, default_var));
 
     let arr = ndarray::Array2::from_shape_vec((nx, ny), sp_var)
         .map_err(|e| PyValueError::new_err(format!("shape error: {e}")))?;

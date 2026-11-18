@@ -28,17 +28,6 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache Cargo registry & build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-
       - name: Create virtual environment and install build tools
         run: |
           python -m venv .venv
@@ -49,22 +38,20 @@ jobs:
       - name: Check Rust formatting, clippy, and unit tests
         run: |
           cargo fmt -- --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test --release
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --release
 
       - name: Build and install editable package with dev extras
-        run: python -m maturin develop --release --extras dev
+        run: python -m maturin develop --locked --release --extras dev
 
       - name: Run pytest suite
         env:
-          EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
-          EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
           SKIP_EARTHDATA_LOGIN: "true"
         run: PYTHONPATH=. pytest
 
       - name: Verify isolated wheel installation
         run: |
-          python -m maturin build --release --out dist
+          python -m maturin build --locked --release --out dist
           python -m venv /tmp/wheel-test-env
           /tmp/wheel-test-env/bin/pip install dist/*.whl
           cd /tmp && /tmp/wheel-test-env/bin/python -I -m ECOv003_L2T_STARS.smoke_test

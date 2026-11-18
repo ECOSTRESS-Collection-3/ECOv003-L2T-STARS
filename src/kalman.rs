@@ -15,9 +15,9 @@ use crate::spatial::{
 
 pub struct FusionInputs<'a> {
     pub coarse_data: ArrayView3<'a, f64>, // (nx_c, ny_c, nt_c)
-    pub coarse_dates: &'a [usize],         // 1-based time indices
+    pub coarse_dates: &'a [usize],        // 1-based time indices
     pub fine_data: ArrayView3<'a, f64>,   // (nx_f, ny_f, nt_f)
-    pub fine_dates: &'a [usize],           // 1-based time indices
+    pub fine_dates: &'a [usize],          // 1-based time indices
     pub coarse_origin: [f64; 2],
     pub coarse_csize: [f64; 2],
     pub fine_origin: [f64; 2],
@@ -194,7 +194,8 @@ fn solve_window(
     ];
 
     let ext_fine = find_overlapping_ext(buffer_ext[0], buffer_ext[1], target_origin, target_csize);
-    let ext_coarse = find_overlapping_ext(buffer_ext[0], buffer_ext[1], window_origin, window_csize);
+    let ext_coarse =
+        find_overlapping_ext(buffer_ext[0], buffer_ext[1], window_origin, window_csize);
     let exx = [
         [
             window_bbox[0][0] + (-inp.nb_coarse - 0.01) * window_csize[0],
@@ -234,7 +235,11 @@ fn solve_window(
 
     let mut bau_ij: Vec<[usize; 2]> =
         Vec::with_capacity(target_ij.len() + ss_target.len() + ss_samp.len());
-    for &p in target_ij.iter().chain(ss_target.iter()).chain(ss_samp.iter()) {
+    for &p in target_ij
+        .iter()
+        .chain(ss_target.iter())
+        .chain(ss_samp.iter())
+    {
         if !bau_ij.iter().any(|&q| q == p) {
             bau_ij.push(p);
         }
@@ -333,8 +338,7 @@ fn solve_window(
         }
     }
 
-    let fine_is_identity =
-        (abs_fine_csize[0] - abs_coarse_csize[0]).abs() < 1e-12 && nf == nb;
+    let fine_is_identity = (abs_fine_csize[0] - abs_coarse_csize[0]).abs() < 1e-12 && nf == nb;
 
     let mut x_pred = vec![0.0f64; n];
     let mut p_pred = Mat::<f64>::zeros(n, n);

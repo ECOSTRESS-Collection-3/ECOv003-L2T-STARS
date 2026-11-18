@@ -83,11 +83,7 @@ pub fn find_all_ij_ext(
 }
 
 #[inline]
-pub fn get_sij_from_ij(
-    ijs: &[[usize; 2]],
-    origin: [f64; 2],
-    cell_size: [f64; 2],
-) -> Vec<[f64; 2]> {
+pub fn get_sij_from_ij(ijs: &[[usize; 2]], origin: [f64; 2], cell_size: [f64; 2]) -> Vec<[f64; 2]> {
     ijs.iter()
         .map(|&ij| {
             [
@@ -101,8 +97,14 @@ pub fn get_sij_from_ij(
 #[inline]
 pub fn bbox_from_centroid(target: [f64; 2], cell_size: [f64; 2]) -> [[f64; 2]; 2] {
     [
-        [target[0] - 0.5 * cell_size[0], target[0] + 0.5 * cell_size[0]],
-        [target[1] - 0.5 * cell_size[1], target[1] + 0.5 * cell_size[1]],
+        [
+            target[0] - 0.5 * cell_size[0],
+            target[0] + 0.5 * cell_size[0],
+        ],
+        [
+            target[1] - 0.5 * cell_size[1],
+            target[1] + 0.5 * cell_size[1],
+        ],
     ]
 }
 
