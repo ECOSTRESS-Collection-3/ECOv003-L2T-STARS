@@ -1,8 +1,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use faer::linalg::matmul::matmul;
-use faer::linalg::solvers::DenseSolveCore;
-use faer::{Accum, Mat, Par};
+use faer::prelude::*;
+use faer::{Mat, Parallelism};
 use indicatif::{ProgressBar, ProgressStyle};
 use ndarray::{Array2, ArrayView2, ArrayView3};
 use rayon::prelude::*;
@@ -489,44 +489,44 @@ fn solve_window(
         if t2 == 2 {
             matmul(
                 hp_pt.as_mut().submatrix_mut(0, 0, nf, m),
-                Accum::Replace,
                 c_fine.as_ref(),
                 h_t.submatrix(0, 0, nf, m),
+                None,
                 1.0,
-                Par::Seq,
+                Parallelism::None,
             );
             matmul(
                 hp_pt.as_mut().submatrix_mut(nf, 0, nb, m),
-                Accum::Replace,
                 c_bias.as_ref(),
                 h_t.submatrix(nf, 0, nb, m),
+                None,
                 1.0,
-                Par::Seq,
+                Parallelism::None,
             );
         } else {
             matmul(
                 hp_pt.as_mut(),
-                Accum::Replace,
                 p_pred.as_ref(),
                 h_t,
+                None,
                 1.0,
-                Par::Seq,
+                Parallelism::None,
             );
         }
 
         matmul(
             s_mat.as_mut(),
-            Accum::Replace,
             ht,
             hp_pt.as_ref(),
+            None,
             1.0,
-            Par::Seq,
+            Parallelism::None,
         );
         for idx in 0..m {
             s_mat[(idx, idx)] += err_vars[idx];
         }
 
-        let k_mat = match s_mat.as_ref().llt(faer::Side::Lower) {
+        let k_mat = match s_mat.as_ref().cholesky(faer::Side::Lower) {
             Ok(chol) => {
                 let mut rhs = Mat::<f64>::zeros(m, n);
                 for r in 0..m {
@@ -581,21 +581,21 @@ fn solve_window(
 
         matmul(
             hp_pred.as_mut(),
-            Accum::Replace,
             ht,
             p_pred.as_ref(),
+            None,
             1.0,
-            Par::Seq,
+            Parallelism::None,
         );
 
         p_cur.copy_from(&p_pred);
         matmul(
             p_cur.as_mut(),
-            Accum::Add,
             k_mat.as_ref(),
             hp_pred.as_ref(),
+            Some(1.0),
             -1.0,
-            Par::Seq,
+            Parallelism::None,
         );
     }
 
