@@ -4,17 +4,19 @@ build-backend = "maturin"
 
 [project]
 name = "ECOv003-L2T-STARS"
-version = "1.19.0"
-description = "ECOSTRESS Collection 3 Level-2 Tiled STARS NDVI and Albedo Product Generating Executable"
+dynamic = ["version"]
+description = "ECOSTRESS Collection 3 L2T STARS PGE"
 readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
 authors = [
     { name = "Gregory H. Halverson", email = "gregory.h.halverson@jpl.nasa.gov" },
-    { name = "Margaret Johnson", email = "maggie.johnson@jpl.nasa.gov" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
-    "colored_logging~=1.1.0",
+    "colored-logging~=1.1.0",
     "ECOv002-CMR",
     "ECOv002-granules",
     "ECOv003-exit-codes~=1.2.0",
@@ -37,11 +39,12 @@ dependencies = [
     "VCD43NRT~=1.5.0",
     "xmltodict~=1.0.4",
 ]
+requires-python = ">=3.10"
 
 [project.optional-dependencies]
 dev = [
     "maturin>=1.7,<2.0",
-    "pytest>=8.0",
+    "pytest>=6.0",
     "pytest-cov",
     "rasterio",
 ]
@@ -51,9 +54,13 @@ ECOv003-L2T-STARS = "ECOv003_L2T_STARS.main:main"
 ECOv003-DL = "ECOv003_L2T_STARS.ECOv003_DL:main"
 ECOv003-L2T-STARS-install-julia = "ECOv003_L2T_STARS.julia_environment:main"
 
+[project.urls]
+Homepage = "https://github.com/ECOSTRESS-Collection-3/ECOv003-L2T-STARS"
+
 [tool.maturin]
 module-name = "ECOv003_L2T_STARS._stars_rust"
 python-source = "."
+features = ["extension-module"]
 include = [
     "ECOv003_L2T_STARS/*.jl",
     "ECOv003_L2T_STARS/*.toml",
@@ -61,5 +68,5 @@ include = [
     "ECOv003_L2T_STARS/*.pyi",
 ]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.setuptools.dynamic]
+version = { attr = "ECOv003_L2T_STARS.version.__version__" }

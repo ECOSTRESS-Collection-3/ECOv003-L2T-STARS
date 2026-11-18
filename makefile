@@ -1,4 +1,4 @@
-.PHONY: install test test-python test-julia resolve-julia clean docker-build
+.PHONY: install test test-python test-julia resolve-julia repomix clean docker-build
 
 install:
 	maturin develop --release
@@ -14,6 +14,9 @@ test-julia:
 
 resolve-julia:
 	julia --project=ECOv003_L2T_STARS -e 'using Pkg; Pkg.resolve(); Pkg.instantiate(); Pkg.precompile()'
+
+repomix:
+	npx repomix --ignore "test_bundle/**,target/**,**/Manifest.toml,**/*.ipynb,**/*.tif,**/*.pdf,**/*.dat,**/*.jpeg,**/*.pyc,build/**,__pycache__/**,*.egg-info/**,repomix-output.xml"
 
 clean:
 	rm -rf *.o *.out *.log
