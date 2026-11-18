@@ -274,7 +274,7 @@ def process_rust_data_fusion(
         src_crs=coarse_meta["profile"]["crs"],
         dst_transform=fine_meta["transform"],
         dst_crs=fine_meta["profile"]["crs"],
-        resampling=Resampling.cubicspline,
+        resampling=Resampling.cubic_spline,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
