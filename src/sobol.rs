@@ -15,8 +15,8 @@ impl SobolSeq2D {
         let mut v = [[0u32; 32]; 2];
 
         // Dimension 1: m_i = 1 for all i
-        for i in 0..32 {
-            v[0][i] = 1u32 << (31 - i);
+        for (i, slot) in v[0].iter_mut().enumerate() {
+            *slot = 1u32 << (31 - i);
         }
 
         // Dimension 2: s = 2, a = 0, m = [1, 3] (exact Sobol.jl table entry)
@@ -56,6 +56,12 @@ impl SobolSeq2D {
         let out = [self.x[0] as f64 * SCALE, self.x[1] as f64 * SCALE];
         self.step();
         out
+    }
+}
+
+impl Default for SobolSeq2D {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

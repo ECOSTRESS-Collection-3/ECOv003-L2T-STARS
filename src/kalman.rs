@@ -240,7 +240,7 @@ fn solve_window(
         .chain(ss_target.iter())
         .chain(ss_samp.iter())
     {
-        if !bau_ij.iter().any(|&q| q == p) {
+        if !bau_ij.contains(&p) {
             bau_ij.push(p);
         }
     }
@@ -361,9 +361,7 @@ fn solve_window(
         for idx in 0..nf {
             x_pred[idx] = ar * x_cur[idx];
         }
-        for idx in nf..n {
-            x_pred[idx] = x_cur[idx];
-        }
+        x_pred[nf..n].copy_from_slice(&x_cur[nf..n]);
         for r in 0..n {
             for c in 0..n {
                 let mult = if r < nf && c < nf {

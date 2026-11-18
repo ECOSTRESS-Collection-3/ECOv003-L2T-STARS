@@ -12,6 +12,13 @@ use pyo3::prelude::*;
 use crate::covariance::{compute_n_eff, fast_var_est};
 use crate::kalman::{run_scene_fusion, FusionInputs};
 
+type FusionOutput<'py> = (
+    Bound<'py, PyArray2<f64>>,
+    Bound<'py, PyArray2<f64>>,
+    Bound<'py, PyArray2<f64>>,
+    Bound<'py, PyArray2<f64>>,
+);
+
 #[pyfunction]
 fn smoke_test() -> PyResult<String> {
     let n_threads = rayon::current_num_threads();
@@ -90,12 +97,7 @@ fn fuse_stars_product<'py>(
     window_buffer: f64,
     cov_wt: f64,
     nb_coarse: f64,
-) -> PyResult<(
-    Bound<'py, PyArray2<f64>>,
-    Bound<'py, PyArray2<f64>>,
-    Bound<'py, PyArray2<f64>>,
-    Bound<'py, PyArray2<f64>>,
-)> {
+) -> PyResult<FusionOutput<'py>> {
     let coarse_times = coarse_time_indices
         .as_slice()
         .map_err(|_| PyValueError::new_err("coarse_time_indices must be contiguous"))?;
