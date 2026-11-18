@@ -2,7 +2,7 @@ use crate::spatial::find_nearest_ind;
 
 /// 2D Sobol sequence generator matching Julia `Sobol.jl` (`SobolSeq(2)`):
 /// - Dimension 1: s=1, a=0, m=[1]
-/// - Dimension 2: s=2, a=1, m=[1, 1]
+/// - Dimension 2: s=2, a=0, m=[1, 3] (exact Sobol.jl table entry)
 #[derive(Clone, Debug)]
 pub struct SobolSeq2D {
     v: [[u32; 32]; 2],
@@ -19,12 +19,12 @@ impl SobolSeq2D {
             v[0][i] = 1u32 << (31 - i);
         }
 
-        // Dimension 2: s = 2, a = 1, m = [1, 1]
+        // Dimension 2: s = 2, a = 0, m = [1, 3] (exact Sobol.jl table entry)
         let mut m = [0u32; 32];
         m[0] = 1;
-        m[1] = 1;
+        m[1] = 3;
         for i in 2..32 {
-            m[i] = (m[i - 1] << 1) ^ (m[i - 2] << 2) ^ m[i - 2];
+            m[i] = (m[i - 2] << 2) ^ m[i - 2];
         }
         for i in 0..32 {
             v[1][i] = m[i] << (31 - i);

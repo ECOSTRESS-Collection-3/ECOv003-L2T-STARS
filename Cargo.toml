@@ -9,7 +9,7 @@ name = "_stars_rust"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["extension-module"]
+default = []
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]

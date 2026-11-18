@@ -1,10 +1,18 @@
-.PHONY: install test test-python test-julia resolve-julia repomix clean docker-build
+PYTHON ?= python
+PYTHON_LIBDIR := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR') or '')")
+
+.PHONY: install test test-rust test-python test-julia resolve-julia repomix clean docker-build
 
 install:
 	maturin develop --release
 
-test:
+test: test-rust
 	PYTHONPATH=. pytest
+
+test-rust:
+	DYLD_FALLBACK_LIBRARY_PATH="$(PYTHON_LIBDIR):$$DYLD_FALLBACK_LIBRARY_PATH" \
+	LD_LIBRARY_PATH="$(PYTHON_LIBDIR):$$LD_LIBRARY_PATH" \
+	cargo test --release
 
 test-python:
 	ECOv003-L2T-STARS test-python
