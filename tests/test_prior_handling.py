@@ -1,139 +1,57 @@
-import os
-import sys
+from datetime import datetime
+from importlib import import_module
+from pathlib import Path
+from types import SimpleNamespace
+from xml.etree import ElementTree
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import date
-
-# Mock missing dependencies
-missing_modules = [
-    'harmonized_landsat_sentinel',
-    'ECOv003_exit_codes',
-    'ECOv002_CMR',
-    'ECOv002_granules',
-    'ECOv003_granules',
-    'GEOS5FP',
-    'modland',
-    'sentinel_tiles',
-    'earthaccess',
-    'colored_logging',
-    'untangle',
-]
-
-for module in missing_modules:
-    if module not in sys.modules:
-        sys.modules[module] = Mock()
-
-from ECOv003_L2T_STARS.prior import Prior
 
 
-class TestPriorHandling:
-    """Tests for prior data handling."""
-    
-    def test_prior_initialization_with_none(self):
-        """Test Prior initialization with None values."""
-        prior = Prior(
-            using_prior=False,
-            prior_date_UTC=None,
-            L2T_STARS_prior_filename=None,
-            prior_NDVI_filename=None,
-            prior_NDVI_UQ_filename=None,
-            prior_NDVI_flag_filename=None,
-            prior_NDVI_bias_filename=None,
-            prior_NDVI_bias_UQ_filename=None,
-            prior_albedo_filename=None,
-            prior_albedo_UQ_filename=None,
-            prior_albedo_flag_filename=None,
-            prior_albedo_bias_filename=None,
-            prior_albedo_bias_UQ_filename=None
-        )
-        
-        assert prior.using_prior is False
-        assert prior.prior_NDVI_filename is None
-        assert prior.prior_albedo_filename is None
-    
-    def test_prior_initialization_with_filenames(self):
-        """Test Prior initialization with actual filenames."""
-        prior = Prior(
-            using_prior=True,
-            prior_date_UTC=date(2024, 10, 30),
-            L2T_STARS_prior_filename="/tmp/prior.zip",
-            prior_NDVI_filename="/tmp/prior_ndvi.tif",
-            prior_NDVI_UQ_filename="/tmp/prior_ndvi_uq.tif",
-            prior_NDVI_flag_filename="/tmp/prior_ndvi_flag.tif",
-            prior_NDVI_bias_filename="/tmp/prior_ndvi_bias.tif",
-            prior_NDVI_bias_UQ_filename="/tmp/prior_ndvi_bias_uq.tif",
-            prior_albedo_filename="/tmp/prior_albedo.tif",
-            prior_albedo_UQ_filename="/tmp/prior_albedo_uq.tif",
-            prior_albedo_flag_filename="/tmp/prior_albedo_flag.tif",
-            prior_albedo_bias_filename="/tmp/prior_albedo_bias.tif",
-            prior_albedo_bias_UQ_filename="/tmp/prior_albedo_bias_uq.tif"
-        )
-        
-        assert prior.using_prior is True
-        assert prior.prior_NDVI_filename == "/tmp/prior_ndvi.tif"
-        assert prior.prior_albedo_filename == "/tmp/prior_albedo.tif"
-    
-    @patch('ECOv003_L2T_STARS.load_prior.exists')
-    @patch('ECOv003_L2T_STARS.load_prior.L2TSTARS')
-    def test_load_prior_when_files_exist(self, mock_l2tstars, mock_exists):
-        """Test loading prior when all files exist."""
-        from ECOv003_L2T_STARS.load_prior import load_prior
-        
-        # Mock all files exist
-        mock_exists.return_value = True
-        
-        prior = load_prior(
-            tile="11SPS",
-            target_resolution=70,
-            model_directory="/tmp/model",
-            L2T_STARS_prior_filename="/tmp/prior.zip"
-        )
-        
-        # Should return a Prior object
-        assert isinstance(prior, Prior)
-    
-    @patch('ECOv003_L2T_STARS.load_prior.exists')
-    def test_load_prior_when_files_missing(self, mock_exists):
-        """Test loading prior when files don't exist."""
-        from ECOv003_L2T_STARS.load_prior import load_prior
-        
-        # Mock files don't exist
-        mock_exists.return_value = False
-        
-        prior = load_prior(
-            tile="11SPS",
-            target_resolution=70,
-            model_directory="/tmp/model",
-            L2T_STARS_prior_filename=None
-        )
-        
-        # Should return Prior with using_prior=False
-        assert prior.using_prior is False
+@pytest.fixture
+def generated_runconfig(tmp_path, monkeypatch):
+    generator = import_module("ECOv003_L2T_STARS.generate_L2T_STARS_runconfig")
+    config = import_module("ECOv003_L2T_STARS.L2TSTARSConfig")
+    granule = SimpleNamespace(
+        orbit=1, scene=2, tile="11SPS", time_UTC=datetime(2026, 10, 10)
+    )
+    monkeypatch.setattr(generator, "L2TLSTE", lambda _: granule)
+    monkeypatch.setattr(config, "L2TLSTE", lambda _: granule)
+    monkeypatch.setattr(
+        generator, "L2TSTARS",
+        SimpleNamespace(generate_granule_name=lambda *args, **kwargs: "test"),
+    )
+    monkeypatch.setattr(config, "L2TSTARS", generator.L2TSTARS)
+
+    def read_config(_, filename):
+        root = ElementTree.parse(filename).getroot()
+        return {
+            group.attrib["name"]: {
+                scalar.attrib["name"]: scalar.text or ""
+                for scalar in group.findall("scalar")
+            }
+            for group in root.findall("group")
+        }
+
+    monkeypatch.setattr(config.L2TSTARSConfig, "read_runconfig", read_config)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    prior = tmp_path / "prior"
+    prior.mkdir()
+    filename = generator.generate_L2T_STARS_runconfig(
+        L2T_LSTE_filename="ECOv003_L2T_LSTE_test",
+        prior_L2T_STARS_filename="~/prior",
+        working_directory=str(tmp_path / "work"),
+    )
+    return config.L2TSTARSConfig, filename, prior
 
 
-class TestPriorBiasLayers:
-    """Tests for prior bias layer handling."""
-    
-    def test_prior_has_bias_attributes(self):
-        """Test that Prior objects have bias layer attributes."""
-        prior = Prior(
-            using_prior=True,
-            prior_date_UTC=date(2024, 10, 30),
-            L2T_STARS_prior_filename="/tmp/prior.zip",
-            prior_NDVI_filename="/tmp/prior_ndvi.tif",
-            prior_NDVI_UQ_filename="/tmp/prior_ndvi_uq.tif",
-            prior_NDVI_flag_filename="/tmp/prior_ndvi_flag.tif",
-            prior_NDVI_bias_filename="/tmp/prior_ndvi_bias.tif",
-            prior_NDVI_bias_UQ_filename="/tmp/prior_ndvi_bias_uq.tif",
-            prior_albedo_filename="/tmp/prior_albedo.tif",
-            prior_albedo_UQ_filename="/tmp/prior_albedo_uq.tif",
-            prior_albedo_flag_filename="/tmp/prior_albedo_flag.tif",
-            prior_albedo_bias_filename="/tmp/prior_albedo_bias.tif",
-            prior_albedo_bias_UQ_filename="/tmp/prior_albedo_bias_uq.tif"
-        )
-        
-        # Check that bias attributes exist
-        assert hasattr(prior, 'prior_NDVI_bias_filename')
-        assert hasattr(prior, 'prior_NDVI_bias_UQ_filename')
-        assert hasattr(prior, 'prior_albedo_bias_filename')
-        assert hasattr(prior, 'prior_albedo_bias_UQ_filename')
+def test_generated_prior_path_is_absolute(generated_runconfig):
+    config_class, filename, prior = generated_runconfig
+    assert str(prior) in Path(filename).read_text()
+    assert config_class(filename).L2T_STARS_prior_filename == str(prior)
+
+
+def test_existing_runconfig_expands_prior_home_path(generated_runconfig):
+    config_class, filename, prior = generated_runconfig
+    path = Path(filename)
+    path.write_text(path.read_text().replace(str(prior), "~/prior"))
+    assert config_class(filename).L2T_STARS_prior_filename == str(prior)

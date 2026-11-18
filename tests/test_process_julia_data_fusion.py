@@ -27,6 +27,10 @@ for module in missing_modules:
 from ECOv003_L2T_STARS.process_julia_data_fusion import process_julia_data_fusion
 
 
+def _mock_run(returncode: int = 0) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=[], returncode=returncode)
+
+
 @pytest.fixture(autouse=True)
 def julia_command():
     with patch(
@@ -49,7 +53,7 @@ class TestProcessJuliaDataFusion:
     def test_gdal_data_removed_when_present(self, mock_exists, mock_subprocess):
         """Test that GDAL_DATA and GDAL_DRIVER_PATH are removed when present."""
         mock_exists.return_value = False  # No prior files exist
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_run(returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -87,7 +91,7 @@ class TestProcessJuliaDataFusion:
     def test_no_error_when_gdal_vars_absent(self, mock_exists, mock_subprocess):
         """Test that no KeyError is raised when GDAL vars don't exist."""
         mock_exists.return_value = False  # No prior files exist
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_run(returncode=0)
         
         # Should not raise KeyError even if GDAL vars are absent from mocked environment
         process_julia_data_fusion(
@@ -116,7 +120,7 @@ class TestProcessJuliaDataFusion:
     def test_julia_num_threads_set(self, mock_exists, mock_subprocess):
         """Test that JULIA_NUM_THREADS is set correctly."""
         mock_exists.return_value = False
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_run(returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -149,7 +153,7 @@ class TestProcessJuliaDataFusion:
         """Test that prior filenames are included in command when all exist."""
         # Mock that all prior files exist
         mock_exists.return_value = True
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_run(returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -188,7 +192,7 @@ class TestProcessJuliaDataFusion:
         """Test that prior filenames are not included when any don't exist."""
         # Mock that prior files don't exist
         mock_exists.return_value = False
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_run(returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -224,7 +228,7 @@ class TestProcessJuliaDataFusion:
     def test_raises_on_nonzero_julia_exit_code(self, mock_exists, mock_subprocess):
         """Test that a non-zero Julia subprocess exit code raises RuntimeError."""
         mock_exists.return_value = False
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=1)
+        mock_subprocess.return_value = _mock_run(returncode=1)
 
         with pytest.raises(RuntimeError, match="Julia data fusion failed for NDVI at tile T11SPA with exit code 1"):
             process_julia_data_fusion(

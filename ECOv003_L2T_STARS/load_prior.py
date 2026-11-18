@@ -46,8 +46,12 @@ def load_prior(
     prior_albedo_bias_filename = None
     prior_albedo_bias_UQ_filename = None
 
-    # Check if a prior L2T_STARS product is specified and exists
-    if L2T_STARS_prior_filename is not None and exists(L2T_STARS_prior_filename):
+    if not L2T_STARS_prior_filename:
+        logger.info("No prior L2T STARS product specified. Prior will not be used.")
+        return Prior(using_prior=False)
+
+    # Check if a prior L2T_STARS product exists
+    if exists(L2T_STARS_prior_filename):
         logger.info(f"Loading prior L2T STARS product: {L2T_STARS_prior_filename}")
         try:
             # Initialize L2TSTARS object from the prior product

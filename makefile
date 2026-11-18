@@ -1,48 +1,61 @@
 # Define package and environment variables
 PACKAGE_NAME = ECOv003-L2T-STARS
+MODULE_NAME = ECOv003_L2T_STARS
 ENVIRONMENT_NAME = $(PACKAGE_NAME)
+PYTHON_VERSION ?= 3.12
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
-PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.12)
-JULIA_VERSION = $(if $(JULIA),$(JULIA),1.11)
-JULIA_PROJECT_NAME = $(if $(JULIA_PROJECT),$(JULIA_PROJECT),$(subst -,_,$(PACKAGE_NAME)))
 
-.PHONY: clean test smoke-test smoke-test-python smoke-test-julia test-julia \
-        build twine-upload dist install-package install uninstall reinstall \
-        environment remove-environment install-julia resolve-julia \
-        julia-version colima-start docker-build docker-build-environment \
-        docker-build-installation docker-interactive docker-remove repomix
+.PHONY: clean rust-clean rust-build rust-rebuild test test-rust smoke-test wheel-test build twine-upload dist install-package install uninstall reinstall environment remove-environment colima-start docker-build docker-build-environment docker-build-installation docker-interactive docker-remove repomix
 
 # --- Cleaning and Maintenance ---
 
-clean:
+clean: rust-clean
 	@echo "Cleaning up build artifacts..."
 	rm -rf *.o *.out *.log
-	rm -rf build/ dist/ *.egg-info .pytest_cache .coverage htmlcov
-	rm -f repomix-output.xml
+	rm -rf build/
+	rm -rf dist/
+	rm -rf *.egg-info
+	rm -rf .pytest_cache
 	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
+
+rust-clean:
+	@echo "Cleaning Rust build artifacts..."
+	rm -rf target/
+	rm -f $(MODULE_NAME)/_stars_rust*.so $(MODULE_NAME)/_stars_rust*.pyd
+
+rust-build:
+	@echo "Building and installing the Rust extension and dev dependencies..."
+	python -m maturin develop --release --extras dev
+
+rust-rebuild:
+	$(MAKE) rust-clean
+	$(MAKE) rust-build
 
 # --- Testing ---
 
-test:
-	@echo "Running Python test suite..."
+test-rust:
+	@echo "Running Rust formatting, clippy, and unit tests..."
+	cargo fmt -- --check
+	cargo clippy --all-targets -- -D warnings
+	DYLD_FALLBACK_LIBRARY_PATH="$(shell python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')" cargo test --release
+
+test: rust-build test-rust
+	@echo "Running pytest suite..."
 	PYTHONPATH=. pytest
 
 smoke-test:
 	@echo "Running smoke tests..."
-	$(PACKAGE_NAME) test
+	PYTHONPATH=. python -I -m $(MODULE_NAME).smoke_test
 
-smoke-test-python:
-	@echo "Running Python smoke tests..."
-	$(PACKAGE_NAME) test-python
-
-smoke-test-julia:
-	@echo "Running Julia smoke tests..."
-	$(PACKAGE_NAME) test-julia
-
-test-julia:
-	@echo "Testing Julia environment..."
-	julia --project=$(JULIA_PROJECT_NAME) $(JULIA_PROJECT_NAME)/julia_smoke_test.jl $(JULIA_PROJECT_NAME)/process_ECOSTRESS_data_fusion_distributed_bias.jl
+wheel-test:
+	@echo "Building release wheel and running isolated smoke test..."
+	rm -rf dist/
+	python -m maturin build --release --out dist
+	python -m venv /tmp/ecov003_l2t_stars_wheel_verify
+	/tmp/ecov003_l2t_stars_wheel_verify/bin/pip install --upgrade pip
+	/tmp/ecov003_l2t_stars_wheel_verify/bin/pip install dist/*.whl
+	cd /tmp && /tmp/ecov003_l2t_stars_wheel_verify/bin/python -I -m $(MODULE_NAME).smoke_test
+	rm -rf /tmp/ecov003_l2t_stars_wheel_verify
 
 # --- Package Management ---
 
@@ -57,16 +70,15 @@ twine-upload:
 dist: clean build twine-upload
 	@echo "Distribution process complete."
 
-install-package:
-	@echo "Installing package in development mode..."
-	pip install --no-cache-dir --index-url https://pypi.org/simple -e '.[dev]'
+install-package: rust-build
+	@echo "Development package and Rust extension installed."
 
-install: install-julia install-package
-	@echo "All installations complete."
+install: install-package
+	@echo "Package installed; source builds require a Rust toolchain."
 
 uninstall:
 	@echo "Uninstalling $(PACKAGE_NAME)..."
-	pip uninstall -y $(PACKAGE_NAME)
+	pip uninstall $(PACKAGE_NAME)
 
 reinstall: uninstall install
 	@echo "Package reinstalled."
@@ -75,59 +87,37 @@ reinstall: uninstall install
 
 environment:
 	@echo "Creating mamba environment: $(ENVIRONMENT_NAME)..."
-	mamba create -y -n $(ENVIRONMENT_NAME) -c conda-forge python=$(PYTHON_VERSION)
+	mamba create -y -n $(ENVIRONMENT_NAME) -c conda-forge python=$(PYTHON_VERSION) pip "setuptools<81" rust maturin
 
 remove-environment:
 	@echo "Removing mamba environment: $(ENVIRONMENT_NAME)..."
-	mamba env remove -y -n $(ENVIRONMENT_NAME) || true
-
-install-julia:
-	@echo "Ensuring Julia $(JULIA_VERSION) is active..."
-	@if command -v juliaup >/dev/null 2>&1; then \
-		juliaup add $(JULIA_VERSION) 2>/dev/null || true; \
-		juliaup override set $(JULIA_VERSION); \
-	else \
-		julia -e 'if !startswith(string(VERSION), "$(JULIA_VERSION)") error("Expected Julia $(JULIA_VERSION) but found $$VERSION. Please update your active Julia version.") end'; \
-	fi
-	@echo "Installing pinned Julia packages from Manifest.toml..."
-	julia --project=$(JULIA_PROJECT_NAME) -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
-
-julia-version:
-	@echo "Setting project Julia version to $(JULIA_VERSION)..."
-	python set_julia_version.py $(JULIA_VERSION)
-
-resolve-julia:
-	@echo "Resolving Julia dependencies and updating Manifest.toml..."
-	julia --project=$(JULIA_PROJECT_NAME) -e 'using Pkg; Pkg.resolve(); Pkg.precompile()'
+	mamba env remove -y -n $(ENVIRONMENT_NAME)
 
 # --- Docker & Colima ---
 
 colima-start:
-	@echo "Starting Colima (x86_64 emulation)..."
+	@echo "Starting Colima..."
 	colima start -m 16 -a x86_64 -d 100
 
 docker-build:
 	@echo "Building Docker image: $(DOCKER_IMAGE_NAME):latest..."
-	docker build --platform linux/amd64 -t $(DOCKER_IMAGE_NAME):latest .
+	docker build -t $(DOCKER_IMAGE_NAME):latest .
 
 docker-build-environment:
 	@echo "Building Docker environment target..."
-	docker build --platform linux/amd64 --target environment -t $(DOCKER_IMAGE_NAME):latest .
+	docker build --target environment -t $(DOCKER_IMAGE_NAME):latest .
 
 docker-build-installation:
 	@echo "Building Docker installation target..."
-	docker build --platform linux/amd64 --target installation -t $(DOCKER_IMAGE_NAME):latest .
+	docker build --target installation -t $(DOCKER_IMAGE_NAME):latest .
 
 docker-interactive:
 	@echo "Starting interactive Docker session..."
-	docker run --rm -it $(DOCKER_IMAGE_NAME):latest fish
+	docker run -it $(DOCKER_IMAGE_NAME) fish
 
 docker-remove:
 	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME)..."
-	docker rmi -f $(DOCKER_IMAGE_NAME):latest
-
-# --- Documentation & AI Context ---
+	docker rmi -f $(DOCKER_IMAGE_NAME)
 
 repomix:
-	@echo "Packing repository context with Repomix..."
-	npx repomix --ignore "**/*.ipynb,**/*.tif,**/*.pdf,**/*.dat,**/*.jpeg,**/*.pyc,**/Manifest.toml,build/**,__pycache__/**,*.egg-info/**,repomix-output.xml"
+	npx repomix --ignore "**/*.lock,**/*.md,**/*.txt,**/*.ipynb"

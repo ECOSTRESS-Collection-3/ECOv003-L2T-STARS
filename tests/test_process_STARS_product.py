@@ -43,7 +43,7 @@ importlib.reload(proc_mod)
 process_STARS_product = proc_mod.process_STARS_product
 
 
-def _invoke_process(tmp_path):
+def _invoke_process(tmp_path, backend: str = "rust"):
     return process_STARS_product(
         tile="07KCA",
         date_UTC=date(2026, 8, 26),
@@ -69,22 +69,42 @@ def _invoke_process(tmp_path):
         NDVI_VCD43NRT_connection=Mock(),
         albedo_VCD43NRT_connection=Mock(),
         using_prior=False,
+        backend=backend,
     )
 
 
+def test_rejects_unsupported_backend(tmp_path):
+    with pytest.raises(ValueError, match="Unsupported STARS fusion backend"):
+        _invoke_process(tmp_path, backend="invalid")
+
+
 @patch("ECOv003_L2T_STARS.process_STARS_product.Raster.open")
-@patch("ECOv003_L2T_STARS.process_STARS_product.process_julia_data_fusion")
+@patch("ECOv003_L2T_STARS.process_STARS_product.process_rust_data_fusion")
+@patch("ECOv003_L2T_STARS.process_STARS_product.generate_STARS_inputs")
+def test_defaults_to_rust_backend_and_raises_blank_output_when_missing(
+    _mock_inputs, mock_rust_fusion, mock_raster_open, tmp_path
+):
+    with pytest.raises(BlankOutput, match="Posterior NDVI raster file not found") as exc_info:
+        _invoke_process(tmp_path)
+
+    assert exc_info.value.exit_code == 17
+    mock_rust_fusion.assert_called_once()
+    mock_raster_open.assert_not_called()
+
+
+@patch("ECOv003_L2T_STARS.process_STARS_product.Raster.open")
+@patch("ECOv003_L2T_STARS.process_julia_data_fusion.process_julia_data_fusion")
 @patch("ECOv003_L2T_STARS.process_STARS_product.generate_STARS_inputs")
 def test_raises_blank_output_when_ndvi_posterior_missing(_mock_inputs, _mock_fusion, mock_raster_open, tmp_path):
     with pytest.raises(BlankOutput, match="Posterior NDVI raster file not found") as exc_info:
-        _invoke_process(tmp_path)
+        _invoke_process(tmp_path, backend="julia")
 
     assert exc_info.value.exit_code == 17
     mock_raster_open.assert_not_called()
 
 
 @patch("ECOv003_L2T_STARS.process_STARS_product.Raster.open")
-@patch("ECOv003_L2T_STARS.process_STARS_product.process_julia_data_fusion")
+@patch("ECOv003_L2T_STARS.process_julia_data_fusion.process_julia_data_fusion")
 @patch("ECOv003_L2T_STARS.process_STARS_product.generate_STARS_inputs")
 def test_raises_blank_output_when_albedo_posterior_missing(_mock_inputs, mock_fusion, mock_raster_open, tmp_path):
     def create_only_ndvi_posteriors(**kwargs):
@@ -104,8 +124,7 @@ def test_raises_blank_output_when_albedo_posterior_missing(_mock_inputs, mock_fu
     mock_raster_open.return_value = Mock()
 
     with pytest.raises(BlankOutput, match="Posterior albedo raster file not found") as exc_info:
-        _invoke_process(tmp_path)
+        _invoke_process(tmp_path, backend="julia")
 
     assert exc_info.value.exit_code == 17
-    # Raster.open should only have been called for the 5 NDVI files, never for albedo
     assert mock_raster_open.call_count == 5

@@ -1,70 +1,80 @@
 [build-system]
-requires = ["setuptools>=60", "setuptools-scm>=8.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
 
 [project]
 name = "ECOv003-L2T-STARS"
-version = "1.17.0"
-description = "ECOSTRESS Collection 3 JPL STARS Data Fusion Product Generating Executable (PGE)"
+version = "1.18.0"
+description = "ECOSTRESS Collection 3 L2T STARS PGE"
 readme = "README.md"
 authors = [
     { name = "Gregory H. Halverson", email = "gregory.h.halverson@jpl.nasa.gov" },
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
     "Operating System :: OS Independent",
 ]
 dependencies = [
     "colored-logging~=1.1.0",
-    "ECOv002-CMR~=1.4.1",
-    "ECOv002-granules~=1.2.1",
-    "ECOv003-CMR~=1.0.0",
+    "ECOv002-CMR",
+    "ECOv002-granules",
     "ECOv003-exit-codes~=1.2.0",
-    "ECOv003-granules~=1.14.0",
-    "GEOS5FP~=2.23.0",
-    "h5py~=3.14.0",
-    "harmonized-landsat-sentinel~=2.3.1",
-    "matplotlib~=3.10.9",
-    "modland~=1.1.2",
-    "numpy~=2.5.4",
-    "pandas~=3.1.1",
-    "pytictoc~=1.5.3",
-    "rasterio~=1.5.2",
-    "rasters~=1.21.0",
-    "scikit-image~=0.26.0",
-    "scipy~=1.18.1",
-    "sentinel-tiles~=1.2.0",
+    "ECOv003-granules",
+    "earthaccess",
+    "GEOS5FP~=2.24.0",
+    "h5py",
+    "harmonized-landsat-sentinel",
+    "matplotlib",
+    "modland~=1.2.0",
+    "numpy",
+    "pandas",
+    "pytictoc",
+    "rasters",
+    "scikit-image",
+    "scipy",
+    "sentinel-tiles~=1.1.1",
     "shapely~=2.2.0",
     "untangle~=1.3.0",
-    "VCD43NRT~=1.5.0",
-    "xmltodict~=1.0.4"
+    "VCD43NRT~=1.6.0",
+    "xmltodict~=1.0.4",
 ]
-
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 
 [project.optional-dependencies]
 dev = [
     "build",
+    "maturin>=1.8,<2",
     "pytest>=6.0",
     "pytest-cov",
-    "jupyter",
-    "twine"
+    "rasterio",
+    "twine",
 ]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-
-[tool.setuptools.package-data]
-ECOv003_L2T_STARS = ["*.*"]
-
-[project.urls]
-"Homepage" = "https://github.com/ECOSTRESS-Collection-3/ECOv003-L2T-STARS"
-
-[tool.setuptools.packages.find]
-include = ["ECOv003_L2T_STARS"]
-exclude = []
 
 [project.scripts]
 ECOv003-L2T-STARS = "ECOv003_L2T_STARS.main:main"
 ECOv003-DL = "ECOv003_L2T_STARS.ECOv003_DL:main"
 ECOv003-L2T-STARS-install-julia = "ECOv003_L2T_STARS.julia_environment:main"
+
+[project.urls]
+Homepage = "https://github.com/ECOSTRESS-Collection-3/ECOv003-L2T-STARS"
+
+[tool.maturin]
+module-name = "ECOv003_L2T_STARS._stars_rust"
+python-source = "."
+features = ["extension-module"]
+include = [
+    "ECOv003_L2T_STARS/*.jl",
+    "ECOv003_L2T_STARS/*.toml",
+    "ECOv003_L2T_STARS/*.xml",
+    "ECOv003_L2T_STARS/*.pyi",
+]
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+filterwarnings = [
+    "ignore:The 'mode.chained_assignment' option is deprecated:Warning:sentinel_tiles",
+]
