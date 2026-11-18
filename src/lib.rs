@@ -8,7 +8,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::covariance::{compute_n_eff, fast_var_est};
-use crate::kalman::{fuse_scene_parallel, FusionInputs};
+use crate::kalman::{run_scene_fusion, FusionInputs};
 
 #[pyfunction]
 fn smoke_test() -> PyResult<String> {
@@ -93,64 +93,45 @@ fn fuse_stars_product<'py>(
     Bound<'py, PyArray2<f64>>,
     Bound<'py, PyArray2<f64>>,
 )> {
-    let cshape = coarse_stack.shape();
-    let fshape = fine_stack.shape();
-    let (coarse_nx, coarse_ny, coarse_nt) = (cshape[0], cshape[1], cshape[2]);
-    let (fine_nx, fine_ny, fine_nt) = (fshape[0], fshape[1], fshape[2]);
+    let coarse_times = coarse_time_indices
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("coarse_time_indices must be contiguous"))?;
+    let fine_times = fine_time_indices
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("fine_time_indices must be contiguous"))?;
 
     let inp = FusionInputs {
-        coarse_stack: coarse_stack.as_slice().map_err(|_| PyValueError::new_err("coarse_stack must be contiguous"))?,
-        coarse_nx,
-        coarse_ny,
-        coarse_nt,
-        coarse_times: coarse_time_indices.as_slice().map_err(|_| PyValueError::new_err("coarse_time_indices must be contiguous"))?,
-        fine_stack: fine_stack.as_slice().map_err(|_| PyValueError::new_err("fine_stack must be contiguous"))?,
-        fine_nx,
-        fine_ny,
-        fine_nt,
-        fine_times: fine_time_indices.as_slice().map_err(|_| PyValueError::new_err("fine_time_indices must be contiguous"))?,
+        coarse_data: coarse_stack.as_array(),
+        coarse_dates: coarse_times,
+        fine_data: fine_stack.as_array(),
+        fine_dates: fine_times,
         coarse_origin,
-        coarse_cell_size,
+        coarse_csize: coarse_cell_size,
         fine_origin,
-        fine_cell_size,
-        prior_mean: prior_mean.as_slice().map_err(|_| PyValueError::new_err("prior_mean must be contiguous"))?,
-        prior_var: prior_var.as_slice().map_err(|_| PyValueError::new_err("prior_var must be contiguous"))?,
-        prior_bias_mean: prior_bias_mean.as_slice().map_err(|_| PyValueError::new_err("prior_bias_mean must be contiguous"))?,
-        prior_bias_var: prior_bias_var.as_slice().map_err(|_| PyValueError::new_err("prior_bias_var must be contiguous"))?,
-        cov_scale: cov_scale.as_slice().map_err(|_| PyValueError::new_err("cov_scale must be contiguous"))?,
-        coarse_res_scalar,
-        target_time: target_time_index,
+        fine_csize: fine_cell_size,
+        prior_mean: prior_mean.as_array(),
+        prior_var: prior_var.as_array(),
+        prior_bias_mean: prior_bias_mean.as_array(),
+        prior_bias_var: prior_bias_var.as_array(),
+        cov_scale: cov_scale.as_array(),
+        coarse_cell_size: coarse_res_scalar,
+        n_times: target_time_index,
         nsamp,
         window_buffer,
-        nb_coarse,
         cov_wt,
+        phi: 0.001,
+        ar_par: 1.0,
+        nb_coarse,
     };
 
-    let (fused_mean, fused_sd, fused_bias, fused_bias_sd) =
-        py.allow_threads(|| fuse_scene_parallel(&inp, num_workers));
+    let out = py.allow_threads(|| run_scene_fusion(&inp, num_workers));
 
-    let out_mean = PyArray2::from_owned_array(
-        py,
-        ndarray::Array2::from_shape_vec((fine_nx, fine_ny), fused_mean)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?,
-    );
-    let out_sd = PyArray2::from_owned_array(
-        py,
-        ndarray::Array2::from_shape_vec((fine_nx, fine_ny), fused_sd)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?,
-    );
-    let out_bias = PyArray2::from_owned_array(
-        py,
-        ndarray::Array2::from_shape_vec((coarse_nx, coarse_ny), fused_bias)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?,
-    );
-    let out_bias_sd = PyArray2::from_owned_array(
-        py,
-        ndarray::Array2::from_shape_vec((coarse_nx, coarse_ny), fused_bias_sd)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?,
-    );
-
-    Ok((out_mean, out_sd, out_bias, out_bias_sd))
+    Ok((
+        PyArray2::from_owned_array(py, out.fused_mean),
+        PyArray2::from_owned_array(py, out.fused_sd),
+        PyArray2::from_owned_array(py, out.fused_bias),
+        PyArray2::from_owned_array(py, out.fused_bias_sd),
+    ))
 }
 
 #[pymodule]

@@ -1,3 +1,11 @@
+#[derive(Clone, Copy, Debug)]
+pub struct SobolBounds {
+    pub i_min: isize,
+    pub i_max: isize,
+    pub j_min: isize,
+    pub j_max: isize,
+}
+
 #[inline]
 pub fn find_nearest_ind(target: f64, origin: f64, cell_size: f64) -> isize {
     ((target - origin) / cell_size + 1.0).round() as isize
@@ -8,6 +16,25 @@ pub fn find_nearest_inds_ext(ext: [f64; 2], origin: f64, cellsize: f64) -> [isiz
     let ind1 = (ext[0] - origin) / cellsize + 1.0;
     let ind2 = (ext[1] - origin) / cellsize + 1.0;
     [ind1.ceil() as isize, ind2.floor() as isize]
+}
+
+pub fn get_ij_from_sij(
+    x_ext: [f64; 2],
+    y_ext: [f64; 2],
+    origin: [f64; 2],
+    cell_size: [f64; 2],
+    ndims: [usize; 2],
+) -> SobolBounds {
+    let is = find_nearest_inds_ext(x_ext, origin[0], cell_size[0]);
+    let js = find_nearest_inds_ext(y_ext, origin[1], cell_size[1]);
+    let nx = ndims[0] as isize;
+    let ny = ndims[1] as isize;
+    SobolBounds {
+        i_min: is[0].clamp(1, nx),
+        i_max: is[1].clamp(1, nx),
+        j_min: js[0].clamp(1, ny),
+        j_max: js[1].clamp(1, ny),
+    }
 }
 
 pub fn find_all_ij_ext(
@@ -46,10 +73,7 @@ pub fn find_all_ij_ext(
         let mut out = Vec::with_capacity(((is[1] - is[0] + 1) * (js[1] - js[0] + 1)) as usize);
         for i in is[0]..=is[1] {
             for j in js[0]..=js[1] {
-                let pair = [i as usize, j as usize];
-                if !out.contains(&pair) {
-                    out.push(pair);
-                }
+                out.push([i as usize, j as usize]);
             }
         }
         out
@@ -59,11 +83,19 @@ pub fn find_all_ij_ext(
 }
 
 #[inline]
-pub fn get_sij_from_ij(ij: [usize; 2], origin: [f64; 2], cell_size: [f64; 2]) -> [f64; 2] {
-    [
-        origin[0] + cell_size[0] * ((ij[0] as f64) - 1.0),
-        origin[1] + cell_size[1] * ((ij[1] as f64) - 1.0),
-    ]
+pub fn get_sij_from_ij(
+    ijs: &[[usize; 2]],
+    origin: [f64; 2],
+    cell_size: [f64; 2],
+) -> Vec<[f64; 2]> {
+    ijs.iter()
+        .map(|&ij| {
+            [
+                origin[0] + cell_size[0] * ((ij[0] as f64) - 1.0),
+                origin[1] + cell_size[1] * ((ij[1] as f64) - 1.0),
+            ]
+        })
+        .collect()
 }
 
 #[inline]
@@ -79,17 +111,12 @@ pub fn find_overlapping_ext(
     ext_tj: [f64; 2],
     origin: [f64; 2],
     cell_size: [f64; 2],
-    inclusive: bool,
 ) -> [[f64; 2]; 2] {
     let (oi, oj) = (origin[0], origin[1]);
     let (c, r) = (cell_size[0], cell_size[1]);
 
-    let mut eti = ext_ti;
-    let mut etj = ext_tj;
-    if !inclusive {
-        eti[1] -= c.signum() * 1e-9;
-        etj[1] -= r.signum() * 1e-9;
-    }
+    let eti = [ext_ti[0], ext_ti[1] - c.signum() * 1e-9];
+    let etj = [ext_tj[0], ext_tj[1] - r.signum() * 1e-9];
 
     let is = [
         find_nearest_ind(eti[0], oi, c),
@@ -147,45 +174,4 @@ pub fn merge_extents(exts: &[[[f64; 2]; 2]], sgns: [f64; 2]) -> [[f64; 2]; 2] {
         [min_y, max_y]
     };
     [ex, ey]
-}
-
-/// Build row-major dense observation matrix `H` of shape `(ns, nt)` matching `unif_weighted_obs_operator_centroid`.
-pub fn unif_weighted_obs_operator_centroid(
-    sensor: &[[f64; 2]],
-    target: &[[f64; 2]],
-    sensor_res: [f64; 2],
-) -> Vec<f64> {
-    let ns = sensor.len();
-    let nt = target.len();
-    let mut h = vec![0.0f64; ns * nt];
-
-    if sensor == target {
-        for i in 0..nt {
-            h[i * nt + i] = 1.0;
-        }
-        return h;
-    }
-
-    let hx = sensor_res[0] / 2.0 + 1e-12;
-    let hy = sensor_res[1] / 2.0 + 1e-12;
-
-    for i in 0..ns {
-        let sx = sensor[i][0];
-        let sy = sensor[i][1];
-        let mut cnt = 0usize;
-        let row_offset = i * nt;
-        for j in 0..nt {
-            if (sx - target[j][0]).abs() <= hx && (sy - target[j][1]).abs() <= hy {
-                h[row_offset + j] = 1.0;
-                cnt += 1;
-            }
-        }
-        if cnt > 0 {
-            let inv_cnt = 1.0 / (cnt as f64);
-            for j in 0..nt {
-                h[row_offset + j] *= inv_cnt;
-            }
-        }
-    }
-    h
 }

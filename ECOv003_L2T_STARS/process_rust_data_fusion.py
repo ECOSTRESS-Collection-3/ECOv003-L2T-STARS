@@ -5,6 +5,7 @@ from os.path import dirname, exists, join
 from time import perf_counter
 from typing import Optional
 
+import colored_logging as cl
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
@@ -32,7 +33,8 @@ def _read_band_f64(filename: str) -> tuple[np.ndarray, dict]:
     return np.ascontiguousarray(arr.T), {"profile": profile, "transform": transform}
 
 
-def _write_geotiff_f32(filename: str, data_xy: np.ndarray, meta: dict) -> None:
+def _write_geotiff_f32(label: str, filename: str, data_xy: np.ndarray, meta: dict) -> None:
+    logger.info(f"[Rust] writing {label} GeoTIFF: {cl.file(filename)}")
     makedirs(dirname(filename), exist_ok=True)
     profile = meta["profile"].copy()
     profile.pop("blockxsize", None)
@@ -52,7 +54,8 @@ def _write_geotiff_f32(filename: str, data_xy: np.ndarray, meta: dict) -> None:
         dst.write(data_xy.T.astype(np.float32), 1)
 
 
-def _write_geotiff_i32(filename: str, data_xy: np.ndarray, meta: dict) -> None:
+def _write_geotiff_i32(label: str, filename: str, data_xy: np.ndarray, meta: dict) -> None:
+    logger.info(f"[Rust] writing {label} GeoTIFF: {cl.file(filename)}")
     makedirs(dirname(filename), exist_ok=True)
     profile = meta["profile"].copy()
     profile.pop("blockxsize", None)
@@ -94,7 +97,16 @@ def process_rust_data_fusion(
     num_workers: int = 8,
 ) -> None:
     t0 = perf_counter()
+    logger.info(
+        f"[Rust] starting STARS data fusion for {cl.name(product_name)} at tile {cl.place(tile)} "
+        f"({cl.val(coarse_cell_size)}m -> {cl.val(fine_cell_size)}m, workers={cl.val(num_workers)})"
+    )
+    logger.info(
+        f"[Rust] VIIRS window: {cl.time(VIIRS_start_date)} to {cl.time(VIIRS_end_date)} | "
+        f"HLS window: {cl.time(HLS_start_date)} to {cl.time(HLS_end_date)}"
+    )
 
+    t_inputs_start = perf_counter()
     coarse_dates_all = [
         VIIRS_start_date + timedelta(days=d)
         for d in range((VIIRS_end_date - VIIRS_start_date).days + 1)
@@ -121,6 +133,11 @@ def process_rust_data_fusion(
         fn = join(downsampled_directory, f"{d.year}", ds, tile, f"STARS_{product_name}_{tile}_{fine_cell_size}m.tif")
         if exists(fn):
             fine_file_by_date[ds] = fn
+
+    logger.info(
+        f"[Rust] discovered {cl.val(len(coarse_file_by_date))} coarse {product_name} rasters and "
+        f"{cl.val(len(fine_file_by_date))} fine {product_name} rasters"
+    )
 
     coarse_template_fn = next(iter(coarse_file_by_date.values()))
     fine_template_fn = next(iter(fine_file_by_date.values()))
@@ -149,14 +166,6 @@ def process_rust_data_fusion(
             sl, _ = _read_band_f64(fn)
             coarse_cache[ds] = sl
             cov_stack[:, :, i] = sl
-
-    t_cov = perf_counter()
-    sp_var = _stars_rust.estimate_spatial_variance(
-        np.ascontiguousarray(cov_stack),
-        float(coarse_cell_size),
-        float(fine_cell_size),
-    )
-    logger.info(f"[Rust] spatial variance estimation completed in {perf_counter() - t_cov:.2f} s")
 
     # Assemble coarse fusion stack
     matched_coarse_idx = []
@@ -208,6 +217,7 @@ def process_rust_data_fusion(
         for p in (prior_filename, prior_UQ_filename, prior_bias_filename, prior_bias_UQ_filename)
     )
     if use_prior:
+        logger.info(f"[Rust] loading prior state from {cl.file(prior_filename)}")
         prior_mean, _ = _read_band_f64(prior_filename)
         prior_sd, _ = _read_band_f64(prior_UQ_filename)
         prior_bias_mean, _ = _read_band_f64(prior_bias_filename)
@@ -229,6 +239,7 @@ def process_rust_data_fusion(
         prior_var = np.ascontiguousarray(prior_sd ** 2)
         prior_bias_var = np.ascontiguousarray(prior_bias_sd ** 2)
     else:
+        logger.info("[Rust] initializing cold-start default priors")
         prior_mean = np.full((fine_nx, fine_ny), DEFAULT_MEAN, dtype=np.float64)
         prior_var = np.full((fine_nx, fine_ny), DEFAULT_SD ** 2, dtype=np.float64)
         prior_bias_mean = np.full((coarse_nx, coarse_ny), DEFAULT_BIAS_MEAN, dtype=np.float64)
@@ -243,7 +254,17 @@ def process_rust_data_fusion(
         prior_flag[coarse_valid > 0] = False
         prior_flag[fine_pixels > 0] = False
 
-    # GDAL cubicspline resample log(sqrt(sp_var)) to fine grid (matches Rasters.resample method=:cubicspline)
+    t_inputs_sec = perf_counter() - t_inputs_start
+    logger.info(f"[Rust] input loading & preprocessing completed in {t_inputs_sec:.2f} s")
+
+    # Spatial variance estimation + GDAL cubicspline resampling
+    t_cov_start = perf_counter()
+    sp_var = _stars_rust.estimate_spatial_variance(
+        np.ascontiguousarray(cov_stack),
+        float(coarse_cell_size),
+        float(fine_cell_size),
+    )
+
     src_log_sd = np.log(np.sqrt(sp_var)).T.astype(np.float64)
     sp_rs_yx = np.full((fine_ny, fine_nx), np.nan, dtype=np.float64)
     reproject(
@@ -261,8 +282,15 @@ def process_rust_data_fusion(
     if np.any(np.isnan(sp_rs)):
         sp_rs[np.isnan(sp_rs)] = np.nanmean(sp_rs)
     cov_scale = np.ascontiguousarray(np.exp(sp_rs))
+    t_cov_sec = perf_counter() - t_cov_start
+    logger.info(f"[Rust] spatial variance estimation & resampling completed in {t_cov_sec:.2f} s")
 
-    t_fus = perf_counter()
+    n_windows = coarse_nx * coarse_ny
+    logger.info(
+        f"[Rust] dispatching {cl.val(n_windows)} spatial windows ({coarse_nx}x{coarse_ny}) "
+        f"across {cl.val(num_workers)} Rayon threads"
+    )
+    t_fusion_start = perf_counter()
     fused_mean, fused_sd, fused_bias, fused_bias_sd = _stars_rust.fuse_stars_product(
         coarse_stack,
         coarse_times,
@@ -281,7 +309,8 @@ def process_rust_data_fusion(
         len(dates),
         num_workers=num_workers,
     )
-    logger.info(f"[Rust] data fusion completed in {perf_counter() - t_fus:.2f} s")
+    t_fusion_sec = perf_counter() - t_fusion_start
+    logger.info(f"[Rust] data fusion completed in {t_fusion_sec:.2f} s")
 
     if "NDVI" in posterior_filename:
         np.clip(fused_mean, -1.0, 1.0, out=fused_mean)
@@ -290,9 +319,18 @@ def process_rust_data_fusion(
 
     fused_mean[prior_flag] = np.nan
 
-    _write_geotiff_f32(posterior_filename, fused_mean, fine_meta)
-    _write_geotiff_i32(posterior_flag_filename, hls_flag, fine_meta)
-    _write_geotiff_f32(posterior_UQ_filename, fused_sd, fine_meta)
-    _write_geotiff_f32(posterior_bias_filename, fused_bias, coarse_meta)
-    _write_geotiff_f32(posterior_bias_UQ_filename, fused_bias_sd, coarse_meta)
-    logger.info(f"[Rust] finished STARS data fusion for {product_name} at tile {tile} in {perf_counter() - t0:.2f} s")
+    t_write_start = perf_counter()
+    _write_geotiff_f32("fused mean", posterior_filename, fused_mean, fine_meta)
+    _write_geotiff_i32("fused flag", posterior_flag_filename, hls_flag, fine_meta)
+    _write_geotiff_f32("fused SD", posterior_UQ_filename, fused_sd, fine_meta)
+    _write_geotiff_f32("bias mean", posterior_bias_filename, fused_bias, coarse_meta)
+    _write_geotiff_f32("bias SD", posterior_bias_UQ_filename, fused_bias_sd, coarse_meta)
+    t_write_sec = perf_counter() - t_write_start
+
+    t_total_sec = perf_counter() - t0
+    logger.info(
+        f"[Rust] timing summary ({product_name}, tile {tile}): "
+        f"inputs={t_inputs_sec:.2f}s, cov_est={t_cov_sec:.2f}s, "
+        f"fusion={t_fusion_sec:.2f}s, write={t_write_sec:.2f}s, total={t_total_sec:.2f}s"
+    )
+    logger.info(f"[Rust] finished STARS data fusion for {product_name} at tile {tile} in {t_total_sec:.2f} s")

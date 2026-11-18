@@ -1,7 +1,10 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use faer::linalg::matmul::matmul;
 use faer::linalg::solvers::DenseSolveCore;
 use faer::{Accum, Mat, Par};
-use ndarray::{Array2, Array3, ArrayView2, ArrayView3};
+use indicatif::{ProgressBar, ProgressStyle};
+use ndarray::{Array2, ArrayView2, ArrayView3};
 use rayon::prelude::*;
 
 use crate::sobol::sobol_bau_ij;
@@ -41,7 +44,7 @@ pub struct FusionOutputs {
 }
 
 /// Port of Julia `coarse_fine_scene_fusion_cbias_pmap` + `coarse_fine_fusion_cbias_dict`.
-pub fn run_scene_fusion(inp: &FusionInputs<'_>) -> FusionOutputs {
+pub fn run_scene_fusion(inp: &FusionInputs<'_>, num_workers: usize) -> FusionOutputs {
     let window_csize = inp.coarse_csize;
     let target_csize = inp.fine_csize;
     let window_origin = inp.coarse_origin;
@@ -65,26 +68,49 @@ pub fn run_scene_fusion(inp: &FusionInputs<'_>) -> FusionOutputs {
     let abs_fine_csize = [target_csize[0].abs(), target_csize[1].abs()];
     let abs_coarse_csize = [window_csize[0].abs(), window_csize[1].abs()];
 
-    // Parallelize over all coarse windows via Rayon
-    let results: Vec<WindowResult> = win_indices
-        .par_iter()
-        .map(|&(k, l)| {
-            solve_window(
-                inp,
-                k,
-                l,
-                window_origin,
-                window_csize,
-                window_ndims,
-                target_origin,
-                target_csize,
-                target_ndims,
-                sgn_target,
-                abs_fine_csize,
-                abs_coarse_csize,
-            )
-        })
-        .collect();
+    let pb = ProgressBar::new(n_win as u64);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:36.cyan/blue}] {pos}/{len} windows ({per_sec}, ETA {eta})",
+        )
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "),
+    );
+    let completed = AtomicUsize::new(0);
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_workers.max(1))
+        .build()
+        .expect("failed to build rayon thread pool");
+
+    let results: Vec<WindowResult> = pool.install(|| {
+        win_indices
+            .par_iter()
+            .map(|&(k, l)| {
+                let res = solve_window(
+                    inp,
+                    k,
+                    l,
+                    window_origin,
+                    window_csize,
+                    window_ndims,
+                    target_origin,
+                    target_csize,
+                    target_ndims,
+                    sgn_target,
+                    abs_fine_csize,
+                    abs_coarse_csize,
+                );
+                let prev = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                if prev & 63 == 0 || prev == n_win {
+                    pb.set_position(prev as u64);
+                }
+                res
+            })
+            .collect()
+    });
+
+    pb.finish_and_clear();
 
     let mut fused_mean = Array2::<f64>::zeros((target_ndims[0], target_ndims[1]));
     let mut fused_sd = Array2::<f64>::zeros((target_ndims[0], target_ndims[1]));
@@ -188,7 +214,6 @@ fn solve_window(
         inp.nsamp,
     );
 
-    // Deduplicate bau_ij preserving Julia `unique(vcat(target_ij, ss_target, ss_samp), dims=1)` order
     let mut bau_ij: Vec<[usize; 2]> =
         Vec::with_capacity(target_ij.len() + ss_target.len() + ss_samp.len());
     for &p in target_ij.iter().chain(ss_target.iter()).chain(ss_samp.iter()) {
@@ -211,7 +236,6 @@ fn solve_window(
     );
     let coarse_xy = get_sij_from_ij(&coarse_ij, window_origin, window_csize);
 
-    // Find central coarse pixel index kp_bias and reorder pp = [kp_bias, others...]
     let kp_bias = coarse_xy
         .iter()
         .position(|&c| (c[0] - bbox_centroid[0]).abs() + (c[1] - bbox_centroid[1]).abs() == 0.0)
@@ -228,7 +252,6 @@ fn solve_window(
 
     let n = nf + nb;
 
-    // Build initial state & covariance
     let mut x_cur = vec![0.0f64; n];
     let mut p_cur = Mat::<f64>::zeros(n, n);
     let mut q_mat = Mat::<f64>::zeros(n, n);
@@ -259,7 +282,6 @@ fn solve_window(
         q_mat[(st, st)] = 1e-10;
     }
 
-    // Build spatial correlation matrix C for fine BAUs
     let inv_range = 1.0 / inp.coarse_cell_size;
     let mut c_fine = Mat::<f64>::zeros(nf, nf);
     for r in 0..nf {
@@ -268,9 +290,7 @@ fn solve_window(
         let yr = bau_xy[r][1];
         c_fine[(r, r)] = sr * sr + 1e-10;
         for c in (r + 1)..nf {
-            let dx = xr - bau_xy[c][0];
-            let dy = yr - bau_xy[c][1];
-            let dist = dx.hypot(dy);
+            let dist = (xr - bau_xy[c][0]).hypot(yr - bau_xy[c][1]);
             let corr = (-dist * inv_range).exp();
             let val = sr * corr * sqrt_pars[c];
             c_fine[(r, c)] = val;
@@ -278,31 +298,25 @@ fn solve_window(
         }
     }
 
-    // Build spatial correlation matrix C for coarse bias pixels
     let mut c_bias = Mat::<f64>::zeros(nb, nb);
     for r in 0..nb {
         c_bias[(r, r)] = 1.0 + 1e-6;
         let xr = bias_xy_ordered[r][0];
         let yr = bias_xy_ordered[r][1];
         for c in (r + 1)..nb {
-            let dx = xr - bias_xy_ordered[c][0];
-            let dy = yr - bias_xy_ordered[c][1];
-            let dist = dx.hypot(dy);
+            let dist = (xr - bias_xy_ordered[c][0]).hypot(yr - bias_xy_ordered[c][1]);
             let corr = (-dist * inv_range).exp();
             c_bias[(r, c)] = corr;
             c_bias[(c, r)] = corr;
         }
     }
 
-    // Update Q matrix off-diagonals
     for r in 0..nf {
         let sqr = sqrt_q_diag[r];
         let xr = bau_xy[r][0];
         let yr = bau_xy[r][1];
         for c in (r + 1)..nf {
-            let dx = xr - bau_xy[c][0];
-            let dy = yr - bau_xy[c][1];
-            let dist = dx.hypot(dy);
+            let dist = (xr - bau_xy[c][0]).hypot(yr - bau_xy[c][1]);
             let corr = (-dist * inv_range).exp();
             let val = sqr * corr * sqrt_q_diag[c];
             q_mat[(r, c)] = val;
@@ -313,9 +327,7 @@ fn solve_window(
         let xr = bias_xy_ordered[r][0];
         let yr = bias_xy_ordered[r][1];
         for c in (r + 1)..nb {
-            let dx = xr - bias_xy_ordered[c][0];
-            let dy = yr - bias_xy_ordered[c][1];
-            let dist = dx.hypot(dy);
+            let dist = (xr - bias_xy_ordered[c][0]).hypot(yr - bias_xy_ordered[c][1]);
             let corr = (-dist * inv_range).exp();
             let val = 1e-5 * corr * 1e-5;
             q_mat[(nf + r, nf + c)] = val;
@@ -323,7 +335,6 @@ fn solve_window(
         }
     }
 
-    // Precompute coarse observation operator H_coarse (nb x nf)
     let hx = abs_coarse_csize[0] / 2.0 + 1e-12;
     let hy = abs_coarse_csize[1] / 2.0 + 1e-12;
     let mut h_coarse = vec![0.0f64; nb * nf];
@@ -345,11 +356,9 @@ fn solve_window(
         }
     }
 
-    // Fine sensor resolution check
     let fine_is_identity =
         (abs_fine_csize[0] - abs_coarse_csize[0]).abs() < 1e-12 && nf == nb;
 
-    // Pre-allocate reusable buffers for Kalman updates
     let mut x_pred = vec![0.0f64; n];
     let mut p_pred = Mat::<f64>::zeros(n, n);
     let max_m = nf + nb;
@@ -364,7 +373,6 @@ fn solve_window(
     for t in 1..=inp.n_times {
         let t2 = t + 1;
 
-        // Predict step (t2 > 2 applies AR transition, t2 == 2 uses prior directly)
         if t2 > 2 {
             for idx in 0..nf {
                 x_pred[idx] = inp.ar_par * x_cur[idx];
@@ -390,12 +398,10 @@ fn solve_window(
             p_pred.copy_from(&p_cur);
         }
 
-        // Gather valid observations at time `t`
         y_vec.clear();
         err_vars.clear();
         let mut m = 0usize;
 
-        // 1. Fine observations at time t
         if let Some(f_pos) = inp.fine_dates.iter().position(|&d| d == t) {
             if fine_is_identity {
                 for (r, &[bi, bj]) in bau_ij.iter().enumerate() {
@@ -447,7 +453,6 @@ fn solve_window(
             }
         }
 
-        // 2. Coarse observations at time t (dynamic_bias = true)
         if let Some(c_pos) = inp.coarse_dates.iter().position(|&d| d == t) {
             for (r, &[ci, cj]) in bias_ij_ordered.iter().enumerate() {
                 let val = inp.coarse_data[[ci - 1, cj - 1, c_pos]];
@@ -475,37 +480,30 @@ fn solve_window(
             continue;
         }
 
-        // Submatrix views for m observations
         let ht = ht_buf.as_ref().submatrix(0, 0, m, n);
         let h_t = h_t_buf.as_ref().submatrix(0, 0, n, m);
         let mut hp_pt = hp_pt_buf.as_mut().submatrix_mut(0, 0, n, m);
         let mut s_mat = s_buf.as_mut().submatrix_mut(0, 0, m, m);
         let mut hp_pred = hp_pred_buf.as_mut().submatrix_mut(0, 0, m, n);
 
-        // Select covariance used in Kalman gain
-        let use_c_cov = t2 == 2;
-        if use_c_cov {
-            // Block-diagonal C_cov = blkdiag(c_fine, c_bias)
-            for i in 0..nf {
-                for j in 0..m {
-                    let mut sum = 0.0;
-                    for c in 0..nf {
-                        sum += c_fine[(i, c)] * h_t[(c, j)];
-                    }
-                    hp_pt[(i, j)] = sum;
-                }
-            }
-            for i in 0..nb {
-                for j in 0..m {
-                    let mut sum = 0.0;
-                    for c in 0..nb {
-                        sum += c_bias[(i, c)] * h_t[(nf + c, j)];
-                    }
-                    hp_pt[(nf + i, j)] = sum;
-                }
-            }
+        if t2 == 2 {
+            matmul(
+                hp_pt.as_mut().submatrix_mut(0, 0, nf, m),
+                Accum::Replace,
+                c_fine.as_ref(),
+                h_t.submatrix(0, 0, nf, m),
+                1.0,
+                Par::Seq,
+            );
+            matmul(
+                hp_pt.as_mut().submatrix_mut(nf, 0, nb, m),
+                Accum::Replace,
+                c_bias.as_ref(),
+                h_t.submatrix(nf, 0, nb, m),
+                1.0,
+                Par::Seq,
+            );
         } else {
-            // SIMD GEMM: HPpT = P_pred * Ht'
             matmul(
                 hp_pt.as_mut(),
                 Accum::Replace,
@@ -516,7 +514,6 @@ fn solve_window(
             );
         }
 
-        // SIMD GEMM: S = Ht * HPpT + diag(err_vars)
         matmul(
             s_mat.as_mut(),
             Accum::Replace,
@@ -529,7 +526,6 @@ fn solve_window(
             s_mat[(idx, idx)] += err_vars[idx];
         }
 
-        // Solve S * K^T = HPpT^T  =>  K = HPpT * S^-1 via Cholesky (fallback LU)
         let k_mat = match s_mat.as_ref().llt(faer::Side::Lower) {
             Ok(chol) => {
                 let mut rhs = Mat::<f64>::zeros(m, n);
@@ -566,7 +562,6 @@ fn solve_window(
             }
         };
 
-        // res_pred = y - Ht * x_pred
         let mut res_pred = vec![0.0f64; m];
         for r in 0..m {
             let mut hx = 0.0;
@@ -576,7 +571,6 @@ fn solve_window(
             res_pred[r] = y_vec[r] - hx;
         }
 
-        // x_cur = x_pred + K * res_pred
         for r in 0..n {
             let mut delta = 0.0;
             for c in 0..m {
@@ -585,7 +579,6 @@ fn solve_window(
             x_cur[r] = x_pred[r] + delta;
         }
 
-        // SIMD GEMM: HP_pred = Ht * P_pred
         matmul(
             hp_pred.as_mut(),
             Accum::Replace,
@@ -595,7 +588,6 @@ fn solve_window(
             Par::Seq,
         );
 
-        // SIMD GEMM: P_cur = P_pred - K * HP_pred
         p_cur.copy_from(&p_pred);
         matmul(
             p_cur.as_mut(),
@@ -607,7 +599,6 @@ fn solve_window(
         );
     }
 
-    // Extract target pixels and central bias pixel
     let mut target_mean = Vec::with_capacity(n_kp);
     let mut target_sd = Vec::with_capacity(n_kp);
     for idx in 0..n_kp {
