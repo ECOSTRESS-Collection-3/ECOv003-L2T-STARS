@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ECOv003-L2T-STARS"
-version = "1.17.0"
+version = "1.18.0"
 description = "ECOSTRESS Collection 3 JPL STARS Data Fusion Product Generating Executable (PGE)"
 readme = "README.md"
 authors = [
@@ -21,11 +21,11 @@ dependencies = [
     "ECOv003-CMR~=1.0.0",
     "ECOv003-exit-codes~=1.2.0",
     "ECOv003-granules~=1.14.0",
-    "GEOS5FP~=2.23.0",
+    "GEOS5FP~=2.24.0",
     "h5py~=3.14.0",
     "harmonized-landsat-sentinel~=2.3.1",
     "matplotlib~=3.10.9",
-    "modland~=1.1.2",
+    "modland~=1.2.0",
     "numpy~=2.5.4",
     "pandas~=3.1.1",
     "pytictoc~=1.5.3",
@@ -36,7 +36,7 @@ dependencies = [
     "sentinel-tiles~=1.2.0",
     "shapely~=2.2.0",
     "untangle~=1.3.0",
-    "VCD43NRT~=1.5.0",
+    "VCD43NRT~=1.6.0",
     "xmltodict~=1.0.4"
 ]
 

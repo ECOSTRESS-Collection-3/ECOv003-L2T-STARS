@@ -503,6 +503,9 @@ def L2T_STARS(
     except (HLSSentinelMissing, HLSLandsatMissing, VCD43NRTVIIRSUnavailableError) as exception:
         logger.exception(exception)
         exit_code = AUXILIARY_LATENCY
+    except LandFilter as exception:
+        logger.info(exception)
+        exit_code = LAND_FILTER
     except ECOSTRESSExitCodeException as exception:
         # Catch custom ECOSTRESS exceptions and use their defined exit code
         logger.exception(exception)
