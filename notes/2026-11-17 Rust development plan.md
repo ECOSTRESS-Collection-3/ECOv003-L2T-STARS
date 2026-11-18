@@ -2,210 +2,80 @@
 
 ## 1. Executive Summary
 
-Following the consolidation and pruning of the Julia data fusion script (`ECOv003_L2T_STARS/process_ECOSTRESS_data_fusion_distributed_bias.jl`), the entire STARS Kalman filter and spatial Gaussian process algorithm is self-contained (~520 lines of pure numerical logic with zero external geospatial library dependencies).
+Following the consolidation and pruning of the Julia data fusion script (`ECOv003_L2T_STARS/process_ECOSTRESS_data_fusion_distributed_bias.jl`), the entire STARS Kalman filter and spatial Gaussian process algorithm is self-contained (~520 lines of pure numerical logic with zero external geospatial library dependencies)[cite: 8].
 
-This plan outlines the migration of the data fusion core into a compiled Rust extension (`ECOv003_L2T_STARS._stars_rust`) built with `PyO3` and `maturin`.
+This plan tracks the migration of the data fusion core into a compiled Rust extension (`ECOv003_L2T_STARS._stars_rust`) built with `PyO3` and `maturin`[cite: 8].
 
 ### Key Goals
-1. **Zero Julia Runtime Dependency for End Users:** Standard `pip install ECOv003-L2T-STARS` installs prebuilt platform wheels (`manylinux`, `macos-arm64`, `windows`) with compiled Rust binaries—no Julia installation, `Manifest.toml` instantiation, or GDAL C-library isolation required.
-2. **Eliminate Multi-Process Startup & Serialization Overhead:** Replace `Distributed.addprocs` worker spawning (`~4.5s` per product) and `pmap` IPC serialization with in-process `rayon` thread-pool parallelism over shared read-only NumPy memory views.
-3. **Preserve Optional Legacy Julia Path:** Retain `process_julia_data_fusion.py` and `process_ECOSTRESS_data_fusion_distributed_bias.jl` behind an opt-in `backend="julia"` flag for side-by-side regression benchmarking, without requiring Julia at package installation or import time.
-4. **Bitwise Numerical Parity:** Validate all 10 output rasters (`NDVI` and `albedo` mean, `UQ`, `flag`, `bias`, and `bias.UQ`) against `test_bundle/reference_outputs/` to `RMSE <= 1e-8`, `NaN Diff = 0`, and Pearson $r = 1.000000$.
+1. **Zero Julia Runtime Dependency for End Users:** Standard `pip install ECOv003-L2T-STARS` installs prebuilt platform wheels (`manylinux`, `macos-arm64`, `windows`) with compiled Rust binaries—no Julia installation, `Manifest.toml` instantiation, or GDAL C-library isolation required[cite: 8].
+2. **Eliminate Multi-Process Startup & Serialization Overhead:** Replace `Distributed.addprocs` worker spawning (`~4.5s` per product) and `pmap` IPC serialization with in-process `rayon` thread-pool parallelism over shared read-only NumPy memory views[cite: 8].
+3. **Preserve Optional Legacy Julia Path:** Retain `process_julia_data_fusion.py` and `process_ECOSTRESS_data_fusion_distributed_bias.jl` behind an opt-in `backend="julia"` flag for side-by-side regression benchmarking, without requiring Julia at package installation or import time[cite: 8].
+4. **Bitwise Numerical Parity:** Validate all 10 output rasters (`NDVI` and `albedo` mean, `UQ`, `flag`, `bias`, and `bias.UQ`) against `test_bundle/reference_outputs/` to `RMSE <= 1e-7`, `NaN Diff = 0`, and Pearson $r \ge 0.999999$[cite: 8].
 
 ---
 
-## 2. Target Package & Repository Layout
+## 2. Engineering Progress & Iterative Milestones Completed
 
-```text
-ECOv003-L2T-STARS/
-├── Cargo.toml                                        # Rust crate configuration (cdylib + rlib)
-├── pyproject.toml                                    # maturin build-backend & Python metadata
-├── src/
-│   ├── lib.rs                                        # PyO3 module entry point & NumPy zero-copy bindings
-│   ├── sobol.rs                                      # Joe & Kuo base-2 Sobol sequence matching Sobol.jl
-│   ├── spatial.rs                                    # Grid indexing, BAU selection, observation operator H
-│   ├── covariance.rs                                 # compute_n_eff, fast_var_est, exp_cor, cubic resampling
-│   └── kalman.rs                                     # Cholesky Kalman filter & rayon window fusion
-├── ECOv003_L2T_STARS/
-│   ├── __init__.py
-│   ├── process_rust_data_fusion.py                   # Python wrapper calling _stars_rust & writing GeoTIFFs
-│   ├── process_julia_data_fusion.py                  # Optional legacy Julia backend (lazy-loaded)
-│   ├── process_ECOSTRESS_data_fusion_distributed_bias.jl
-│   ├── process_STARS_product.py                      # Backend router ("rust" default, "julia" legacy)
-│   └── ...
-├── tests/
-│   ├── test_rust_data_fusion.py                      # Unit & numerical parity tests vs test_bundle/
-│   └── ...
-└── .github/workflows/
-    ├── ci.yml                                        # cargo test + maturin develop + pytest
-    └── python-publish.yml                            # PyO3/maturin-action multi-platform wheel builds
-```
+### Phase 1: Rust Crate Scaffolding, Build System & Unit Tests (Completed)
+* [x] **Created Rust crate (`Cargo.toml`) & `maturin` build configuration (`pyproject.toml`):** Configured `_stars_rust` as `crate-type = ["cdylib", "rlib"]` with `pyo3 0.23`, `numpy 0.23`, `ndarray 0.16`, `rayon 1.10`, `faer 0.20`, and `indicatif 0.17`, plus `opt-level = 3`, `lto = "fat"`, and `codegen-units = 1` release optimizations.
+* [x] **Resolved macOS / Conda `libpython` dynamic linking:** Enabled `extension-module` feature in `pyproject.toml` and verified via `otool -L` that `_stars_rust.cpython-312-darwin.so` links cleanly against system libraries without hardcoding a Conda `libpython` path.
+* [x] **Implemented pure-Rust numerical modules & PyO3 bindings:**
+  * `src/sobol.rs` — 2D Sobol sequence generator (`SobolSeq2D`) and `sobol_bau_ij` sub-grid sampler.
+  * `src/spatial.rs` — Grid coordinate/index transforms (`find_nearest_ind`, `find_all_ij_ext`, `find_overlapping_ext`, `merge_extents`, `bbox_from_centroid`).
+  * `src/covariance.rs` — Matérn 3/2 effective sample size (`compute_n_eff` with $s = d / \lambda$) and parallel temporal first-difference spatial variance estimator (`fast_var_est`).
+  * `src/kalman.rs` — State-space Kalman filter and `rayon` parallel window solver (`run_scene_fusion`).
+  * `src/lib.rs` & `ECOv003_L2T_STARS/_stars_rust.pyi` — Zero-copy NumPy bindings (`smoke_test`, `estimate_spatial_variance`, `fuse_stars_product`) and Python type stubs.
+* [x] **Added smoke test (`tests/test_rust_smoke.py`) and updated `makefile` / `.gitignore`:** Automated `maturin develop --release` in `make install` and verified clean editable builds (`~7.8s` release compile).
 
----
+### Phase 2: Full-Scene Fusion, Performance Optimization & Parity Alignment (In Progress)
+* [x] **Implemented Python orchestration wrapper (`ECOv003_L2T_STARS/process_rust_data_fusion.py`) & offline verification harness (`test_rust_output.py`):**
+  * Transposes `(row=y, col=x)` GeoTIFF bands into Julia/STARS `(x, y)` memory orientation and computes 7-day HLS availability flags (`100.00%` exact match across all `2,458,624` pixels).
+  * Fixed GeoTIFF block-size alignment (`BLOCKYSIZE` / `BLOCKXSIZE` stripped from input profiles and `tiled=True` enabled only when dimensions $\ge 256 \times 256$).
+  * Replaced `scipy.ndimage.zoom` with GDAL `Resampling.cubic_spline` coordinate reprojection (`rasterio.warp.reproject`) to align pixel centroids with Julia's `Rasters.resample(..., method=:cubicspline)`.
+* [x] **Accelerated Kalman solver (`3.0x` speedup: `316.25s` $\rightarrow$ `102.91s` total):**
+  * Replaced scalar triple-nested matrix loops with `faer 0.20` SIMD `matmul` microkernels and lower-triangular Cholesky (`cholesky(Side::Lower)`) with `partial_piv_lu` fallback.
+  * Preallocated reusable matrix scratch buffers (`ht_buf`, `h_t_buf`, `hp_pt_buf`, `s_buf`, `rhs_buf`, `k_buf`, `hp_pred_buf`) outside the time loop to eliminate per-timestep heap allocations.
+  * Added live `indicatif` atomic progress bars (`961.4 windows/s` for NDVI, `264.8 windows/s` for albedo) and structured stage timing telemetry (`inputs`, `cov_est`, `resample`, `pool_init`, `kalman_solve`, `assemble`, `write`, `total`).
+* [x] **Resolved major Kalman filter numerical discrepancies:**
+  * Fixed `SobolSeq2D` Dimension 2 direction numbers (`s = 2, a = 1, m = [1, 1]`) and `.round_ties_even()` to match `Sobol.jl`'s exact sequence (`[0.5, 0.5]`, `[0.75, 0.25]`, `[0.25, 0.75]`, `[0.375, 0.375]`, ...).
+  * Removed erroneous `cov_wt` scaling on `Q[1:nf, 1:nf]` when `state_in_cov = false` (`Q[1:nf, 1:nf] = cvs * Qs * cvs`) and set bias process noise to diagonal `1e-6 * I`.
+  * Applied uniform `x_pred = F * x_cur` and `P_pred = F * P_cur * F' + Q` prediction across all timesteps `t = 1..n_times`.
+  * Aligned `bias.UQ` output to write posterior variance `P_cur[(nf, nf)]` directly (`RMSE = 2.35e-09` for NDVI, `1.36e-09` for albedo).
+* [x] **Aligned `sobol_bau_ij` boundary rounding and dense-grid fallback (`src/sobol.rs`):** Updated `sobol_bau_ij` to use `find_nearest_ind` (`.round()`) with `1e-9` upper-extent offset (`inclusive = false`) and exhaustive `(i, j)` enumeration when `nsamp >= ni * nj`.
+* [ ] **Rebuild & verify `src/sobol.rs` parity update on `test_rust_output.py`:** Confirm final `Mean` RMSE drops from `4.24e-03` (NDVI) / `9.78e-04` (albedo) into the `1e-7`–`1e-9` target band.
+* [ ] **Investigate further SIMD / workspace optimizations in `src/kalman.rs` (optional):** Profile `p_pred` transition update and `rhs` transpose to push total runtime below `60s` (`< 30s` per product).
 
-## 3. Julia-to-Rust Component Mapping
-
-| Julia Component (`process_ECOSTRESS_data_fusion_distributed_bias.jl`) | Rust Crate / Module | Implementation Strategy |
-| :--- | :--- | :--- |
-| `addprocs(wrkrs)` + `pmap(...)` | `rayon` (`ThreadPoolBuilder`) | Build a scoped `rayon::ThreadPool` sized to `num_workers` and execute `par_iter()` across all spatial windows (`50,176` NDVI / `12,544` albedo) with zero-copy shared slice references. |
-| `LAPACK.potrf!` / `potri!` / `BLAS.symm` | `faer` (`0.20+`) | Pure-Rust SIMD Cholesky decomposition (`S.llt(Side::Lower)`) and triangular solve (`llt.solve_in_place(...)`)—avoids explicit matrix inversion (`potri!`), improves numerical conditioning, and eliminates OpenBLAS/MKL linking issues in wheels. |
-| `Sobol.SobolSeq([is[1], js[1]], [is[2], js[2]])` | `src/sobol.rs` | Implement Joe & Kuo base-2 direction numbers matching `Sobol.jl`'s exact sequence (skipping index `0` and scaling `is[1] + u1 * (is[2] - is[1])`) so the 100 background BAU coordinates per window match bit-for-bit. |
-| `fast_var_est` & `compute_n_eff` | `src/covariance.rs` | Single-pass `@inbounds`-equivalent slice variance over temporal first-differences (`min_num_obs = 8`, `default_var = 1e-4`) and Matérn 3/2 correlation ($s = d / \lambda$, no $\sqrt{3}$ factor). |
-| `Rasters.resample(..., method=:cubicspline)` | Python (`scipy.ndimage` / `rasters`) or `src/covariance.rs` | Resample `log(sqrt(sp_var))` from the coarse grid (`224x224` or `112x112`) to the fine grid (`1568x1568`) using natural cubic B-spline interpolation matching `Interpolations.jl`. |
-| `unif_weighted_obs_operator_centroid` | `src/spatial.rs` | Construct row-normalized sparse/dense weights where $|s_x - t_x| \le \Delta x / 2 + 10^{-12}$ and $|s_y - t_y| \le \Delta y / 2 + 10^{-12}$. |
-| `ArchGDAL` GeoTIFF I/O | Python (`rasters.Raster.to_geotiff`) | Pass `Float32`/`Int32` NumPy arrays back to `process_rust_data_fusion.py` and write compressed, tiled GeoTIFFs using the existing `rasters` / `rasterio` stack. |
+### Phase 3: Dual-Backend Integration & Multi-Platform CI/CD (Pending)
+* [ ] **Wire `backend="rust"` (default) and `--backend rust|julia` CLI option** into `ECOv003_L2T_STARS/L2T_STARS.py`, `ECOv003_L2T_STARS/process_STARS_product.py`, and `ECOv003_L2T_STARS/main.py`[cite: 8].
+* [ ] **Update `ECOv003_L2T_STARS/smoke_test.py`:** Test Python + `_stars_rust` by default (`ECOv003-L2T-STARS test`), keeping `test-julia` opt-in when Julia is present[cite: 8].
+* [ ] **Add automated Rust parity & unit test suite (`tests/test_rust_data_fusion.py`):** Cover `sobol.rs`, `covariance.rs`, `kalman.rs`, and full-tile parity checks[cite: 8].
+* [ ] **Update `.github/workflows/ci.yml` and `.github/workflows/python-publish.yml`:** Run `cargo test`, `maturin develop --release`, and `pytest` in CI, and build multi-platform wheels (`manylinux` x86_64/aarch64, macOS arm64/x86_64, Windows x64) via `PyO3/maturin-action`[cite: 8].
+* [ ] **Update `Dockerfile`:** Default to standard `pip install .` without downloading the Julia tarball unless `--build-arg INCLUDE_JULIA=1` is passed[cite: 8].
 
 ---
 
-## 4. Build & Packaging Configuration (`maturin` + `PyO3`)
+## 3. Current Benchmark & Parity Status (`11SPS` Test Bundle, 8 Workers)
 
-### 4.1 `Cargo.toml`
-
-```toml
-[package]
-name = "ecov003-l2t-stars-rust"
-version = "1.19.0"
-edition = "2021"
-
-[lib]
-name = "_stars_rust"
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-pyo3 = { version = "0.23", features = ["extension-module"] }
-numpy = "0.23"
-rayon = "1.10"
-faer = "0.20"
-
-[profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
-```
-
-### 4.2 `pyproject.toml` Updates
-
-Switch `[build-system]` from `setuptools` to `maturin` while keeping all existing Python dependencies, package data (`*.xml`, `Project.toml`, `*.jl`), and console scripts intact:
-
-```toml
-[build-system]
-requires = ["maturin>=1.7,<2.0"]
-build-backend = "maturin"
-
-[tool.maturin]
-module-name = "ECOv003_L2T_STARS._stars_rust"
-python-source = "."
-include = [
-    "ECOv003_L2T_STARS/*.xml",
-    "ECOv003_L2T_STARS/*.toml",
-    "ECOv003_L2T_STARS/*.jl",
-]
-```
+| Pipeline Metric | Round 4 Julia Baseline | Current Rust (`_stars_rust`) | Status |
+| :--- | :---: | :---: | :--- |
+| **Worker Startup Overhead** | `3.95s` / `4.41s` | **`0.000s` / `0.000s`** | Eliminated |
+| **Spatial Variance Est (`cov_est`)** | `0.39s` / `0.39s` | **`0.00s` / `0.00s`** | ~100x faster |
+| **NDVI Total Time (`490m -> 70m`)** | `62.90s` | **`53.41s`** | **-15.1% faster** |
+| **Albedo Total Time (`980m -> 70m`)** | `53.30s` | **`48.71s`** | **-8.6% faster** |
+| **End-to-End Verification Time** | `125.00s` (`2m 05s`) | **`102.91s`** (`1m 43s`) | **-17.7% faster** |
+| **`NaN Diff` / `flag Exact %`** | `0` / `100.00%` | **`0` / `100.00%`** | Exact match |
+| **`bias.UQ` RMSE (NDVI / Albedo)** | `4.57e-14` / `4.79e-14` | **`2.35e-09` / `1.36e-09`** | Parity achieved (`100% <= 1e-5`) |
+| **`UQ` RMSE (NDVI / Albedo)** | `8.27e-10` / `2.91e-10` | **`7.01e-05` / `2.61e-05`** | $r = 0.999995$ / $0.999988$ |
+| **`Mean` RMSE (NDVI / Albedo)** | `1.89e-09` / `9.19e-10` | **`4.24e-03` / `9.78e-04`** | Rebuilding `sobol.rs` next |
 
 ---
 
-## 5. Python–Rust Interface & Dual-Backend Architecture
+## 4. Verification & Rollback Checklist
 
-### 5.1 Zero-Copy PyO3 Function Signature (`src/lib.rs`)
-
-Expose a single high-level entry point `fuse_stars_product` accepting read-only NumPy arrays (`PyReadonlyArray2` / `PyReadonlyArray3`) and returning a tuple of 5 NumPy arrays `(fused_mean, fused_sd, hls_flag, fused_bias, fused_bias_sd)`:
-
-```rust
-#[pyfunction]
-#[pyo3(signature = (
-    coarse_cov_stack,
-    coarse_stack,
-    coarse_time_indices,
-    fine_stack,
-    fine_time_indices,
-    flag_fine_stack,
-    coarse_origin,
-    coarse_cell_size,
-    fine_origin,
-    fine_cell_size,
-    target_time_index,
-    is_ndvi,
-    prior_mean=None,
-    prior_sd=None,
-    prior_bias_mean=None,
-    prior_bias_sd=None,
-    num_workers=8,
-    nsamp=100,
-    window_buffer=4,
-    cov_wt=0.2,
-    nb_coarse=2.0
-))]
-fn fuse_stars_product<'py>(
-    py: Python<'py>,
-    // ... typed NumPy array arguments ...
-) -> PyResult<(
-    Bound<'py, PyArray2<f32>>,
-    Bound<'py, PyArray2<f32>>,
-    Bound<'py, PyArray2<i32>>,
-    Bound<'py, PyArray2<f32>>,
-    Bound<'py, PyArray2<f32>>,
-)>
-```
-
-### 5.2 Optional Legacy Julia Backend (`ECOv003_L2T_STARS/process_STARS_product.py`)
-
-Add a `backend: Literal["rust", "julia"] = "rust"` parameter to `L2T_STARS()`, `process_STARS_product()`, and the `ECOv003-L2T-STARS` CLI (`--backend rust|julia`):
-
-```python
-if backend == "rust":
-    from .process_rust_data_fusion import process_rust_data_fusion
-    process_rust_data_fusion(...)
-elif backend == "julia":
-    from .process_julia_data_fusion import process_julia_data_fusion
-    process_julia_data_fusion(...)
-else:
-    raise ValueError(f"Unsupported STARS fusion backend: {backend!r}")
-```
-
-* When `backend == "rust"` (default), `julia_environment.py` is never invoked, and users do not need Julia installed.
-* When `backend == "julia"` is explicitly requested, `find_julia_command()` validates the local Julia installation and raises `JuliaEnvironmentError` if unavailable.
-* Keep `ECOv003-L2T-STARS-install-julia` as an optional helper command for users who wish to run the legacy Julia backend.
-
----
-
-## 6. Phased Implementation Roadmap
-
-### Phase 1: Rust Crate Scaffolding & Numerical Kernel Unit Tests (Week 1)
-1. Create `Cargo.toml` and `src/` modules (`sobol.rs`, `spatial.rs`, `covariance.rs`, `kalman.rs`, `lib.rs`).
-2. Update `pyproject.toml` to use `maturin` and verify local editable builds via `maturin develop --release`.
-3. Write pure-Rust `#[cfg(test)]` unit tests verifying:
-   * `sobol.rs` first 100 2D points match `Sobol.jl` output to `1e-15`.
-   * `covariance.rs` `compute_n_eff(7, 2.0, 1.5)` equals `2.0026...` and `compute_n_eff(14, 2.0, 1.5)` matches Julia bit-for-bit.
-   * `kalman.rs` single-window filter update matches `kalman_filter!` to `1e-13`.
-
-### Phase 2: Full-Scene `rayon` Fusion & Golden Parity Verification (Week 2)
-1. Implement `process_rust_data_fusion.py` to load downsampled GeoTIFFs via `rasters`, call `_stars_rust.fuse_stars_product(...)`, and write the 5 posterior GeoTIFFs (`mean`, `UQ`, `flag`, `bias`, `bias.UQ`).
-2. Add `test_rust_output.py` (modeled on `test_julia_output.py`) and run against `test_bundle/` for both `NDVI` (`490m` $\rightarrow$ `70m`) and `albedo` (`980m` $\rightarrow$ `70m`).
-3. Verify acceptance criteria across all 10 layers:
-   * `NaN Diff == 0`
-   * `Flag Exact % == 100.00%`
-   * `RMSE <= 1e-7`
-   * `Pearson r >= 0.999999`
-4. Benchmark end-to-end runtime against the Round 4 Julia baseline (`2m 05s` total; expected Rust runtime `< 35s` with zero worker startup overhead).
-
-### Phase 3: Dual-Backend Integration & Multi-Platform CI/CD (Week 3)
-1. Wire `backend="rust"` (default) and `--backend` CLI option into `L2T_STARS.py`, `process_STARS_product.py`, and `main.py`.
-2. Update `ECOv003_L2T_STARS/smoke_test.py` so `ECOv003-L2T-STARS test` tests Python + `_stars_rust` by default, while `ECOv003-L2T-STARS test-julia` remains available when Julia is present.
-3. Update `.github/workflows/ci.yml` to run `cargo test`, `maturin develop --release`, and `pytest`.
-4. Update `.github/workflows/python-publish.yml` to use `PyO3/maturin-action@v1` to build and publish wheels for:
-   * Linux (`x86_64`, `aarch64` `manylinux`)
-   * macOS (`arm64`, `x86_64`)
-   * Windows (`x64`)
-   * Source distribution (`sdist`)
-5. Update `Dockerfile` to install via `pip install .` (removing the Julia tarball download for standard production builds unless `--build-arg INCLUDE_JULIA=1` is passed).
-
----
-
-## 7. Verification & Rollback Checklist
-
-- [ ] `cargo test --release` passes all numerical kernel tests.
-- [ ] `maturin develop --release` builds cleanly in the `ECOv003-L2T-STARS` conda environment.
-- [ ] `python test_rust_output.py` achieves `NaN Diff = 0` and `RMSE <= 1e-7` across all 10 layers in `test_bundle/`.
-- [ ] `PYTHONPATH=. pytest` passes all existing unit tests without Julia installed on `PATH`.
+- [x] `maturin develop --release` builds cleanly in the `ECOv003-L2T-STARS` conda environment without linking `libpython`.
+- [x] `NaN Diff == 0` and `flag Exact % == 100.00%` across all 10 output layers in `test_bundle/`.
+- [ ] `cargo test --release` passes all Rust unit tests (`sobol`, `covariance`, `spatial`, `kalman`).
+- [ ] `python test_rust_output.py` achieves `RMSE <= 1e-7` across all 10 layers in `test_bundle/`.
+- [ ] `PYTHONPATH=. pytest` passes all existing and new unit tests without Julia installed on `PATH`.
 - [ ] `backend="julia"` runs and matches `backend="rust"` when Julia is installed.
 - [ ] Wheel build (`maturin build --release --out dist`) succeeds and installs cleanly into a fresh virtual environment without Rust or Julia toolchains.
