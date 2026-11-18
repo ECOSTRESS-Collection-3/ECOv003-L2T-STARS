@@ -5,7 +5,7 @@ ENVIRONMENT_NAME = $(PACKAGE_NAME)
 PYTHON_VERSION ?= 3.12
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
 
-.PHONY: clean rust-clean rust-build rust-rebuild test test-rust smoke-test wheel-test build twine-upload dist install-package install uninstall reinstall environment remove-environment colima-start docker-build docker-build-environment docker-build-installation docker-interactive docker-remove
+.PHONY: clean rust-clean rust-build rust-rebuild test test-rust smoke-test wheel-test build twine-upload dist install-package install uninstall reinstall environment remove-environment colima-start docker-build docker-build-environment docker-build-installation docker-interactive docker-remove repomix
 
 # --- Cleaning and Maintenance ---
 
@@ -118,3 +118,6 @@ docker-interactive:
 docker-remove:
 	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME)..."
 	docker rmi -f $(DOCKER_IMAGE_NAME)
+
+repomix:
+	npx repomix --ignore "**/*.lock,**/*.md,**/*.txt,**/*.ipynb"
