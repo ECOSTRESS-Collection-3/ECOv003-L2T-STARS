@@ -1,14 +1,15 @@
-import subprocess
-from typing import Union
-from datetime import date
-from os.path import abspath, dirname, join, exists
-import os
 import logging
+import os
+from os.path import abspath, dirname, join, exists
+import subprocess
+from datetime import date
+from typing import Union
 
 from .install_julia import install_julia
 from .julia_environment import find_julia_command
 
 logger = logging.getLogger(__name__)
+
 
 def process_julia_data_fusion(
         tile: str,
@@ -123,7 +124,7 @@ def process_julia_data_fusion(
         logger.info("No complete prior set found; running Julia data fusion without prior.")
 
     logger.info(f"Executing Julia command: {' '.join(command)}")
-    # Execute the Julia command, adding the environment changes
+    # Execute the Julia command directly on the inherited console TTY
     result = subprocess.run(command, check=False, env=julia_env)
     if result.returncode != 0:
         raise RuntimeError(

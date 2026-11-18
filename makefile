@@ -130,4 +130,4 @@ docker-remove:
 
 repomix:
 	@echo "Packing repository context with Repomix..."
-	npx repomix --ignore "**/*.ipynb,**/*.tif,**/*.pdf,**/*.dat,**/*.jpeg,**/*.pyc,**/Manifest.toml,build/**,__pycache__/**,*.egg-info/**,repomix-output.xml"
+	npx repomix --ignore "**/*.ipynb,**/*.tif,**/*.pdf,**/*.dat,**/*.jpeg,**/*.pyc,**/Manifest.toml,test_bundle/**,build/**,__pycache__/**,*.egg-info/**,repomix-output.xml" --copy

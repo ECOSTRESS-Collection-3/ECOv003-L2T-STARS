@@ -27,6 +27,16 @@ for module in missing_modules:
 from ECOv003_L2T_STARS.process_julia_data_fusion import process_julia_data_fusion
 
 
+def _mock_popen(returncode: int = 0, lines=()):
+    proc = Mock()
+    proc.stdout = iter(lines)
+    proc.wait.return_value = returncode
+    cm = Mock()
+    cm.__enter__ = Mock(return_value=proc)
+    cm.__exit__ = Mock(return_value=False)
+    return cm
+
+
 @pytest.fixture(autouse=True)
 def julia_command():
     with patch(
@@ -39,7 +49,7 @@ def julia_command():
 class TestProcessJuliaDataFusion:
     """Tests for the process_julia_data_fusion function."""
     
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
+    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.Popen')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
     @patch.dict('os.environ', {
         'GDAL_DATA': '/some/gdal/path',
@@ -49,7 +59,7 @@ class TestProcessJuliaDataFusion:
     def test_gdal_data_removed_when_present(self, mock_exists, mock_subprocess):
         """Test that GDAL_DATA and GDAL_DRIVER_PATH are removed when present."""
         mock_exists.return_value = False  # No prior files exist
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_popen(returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -81,13 +91,13 @@ class TestProcessJuliaDataFusion:
         # Verify other vars remain in subprocess environment
         assert call_env['TEST_VAR'] == 'test_value'
     
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
+    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.Popen')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
     @patch.dict('os.environ', {'SOME_VAR': 'value'}, clear=True)
     def test_no_error_when_gdal_vars_absent(self, mock_exists, mock_subprocess):
         """Test that no KeyError is raised when GDAL vars don't exist."""
         mock_exists.return_value = False  # No prior files exist
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_popen(returncode=0)
         
         # Should not raise KeyError even if GDAL vars are absent from mocked environment
         process_julia_data_fusion(
@@ -110,13 +120,13 @@ class TestProcessJuliaDataFusion:
         # Verify subprocess was called successfully
         assert mock_subprocess.called
     
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
+    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.Popen')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
     @patch.dict('os.environ', {}, clear=True)
     def test_julia_num_threads_set(self, mock_exists, mock_subprocess):
         """Test that JULIA_NUM_THREADS is set correctly."""
         mock_exists.return_value = False
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_popen(returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -142,14 +152,14 @@ class TestProcessJuliaDataFusion:
         # Verify JULIA_NUM_THREADS is set
         assert call_env['JULIA_NUM_THREADS'] == '8'
     
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
+    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.Popen')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
     @patch.dict('os.environ', {}, clear=True)
     def test_prior_files_passed_when_all_exist(self, mock_exists, mock_subprocess):
         """Test that prior filenames are included in command when all exist."""
         # Mock that all prior files exist
         mock_exists.return_value = True
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_popen(returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -181,14 +191,14 @@ class TestProcessJuliaDataFusion:
         assert "/tmp/prior_bias.tif" in command
         assert "/tmp/prior_bias_uq.tif" in command
     
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
+    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.Popen')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
     @patch.dict('os.environ', {}, clear=True)
     def test_prior_files_not_passed_when_missing(self, mock_exists, mock_subprocess):
         """Test that prior filenames are not included when any don't exist."""
         # Mock that prior files don't exist
         mock_exists.return_value = False
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=0)
+        mock_subprocess.return_value = _mock_popen(returncode=0)
         
         process_julia_data_fusion(
             tile="T11SPA",
@@ -218,13 +228,13 @@ class TestProcessJuliaDataFusion:
         assert "/tmp/prior.tif" not in command
         assert "/tmp/prior_uq.tif" not in command
 
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
+    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.Popen')
     @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
     @patch.dict('os.environ', {}, clear=True)
     def test_raises_on_nonzero_julia_exit_code(self, mock_exists, mock_subprocess):
         """Test that a non-zero Julia subprocess exit code raises RuntimeError."""
         mock_exists.return_value = False
-        mock_subprocess.return_value = subprocess.CompletedProcess([], returncode=1)
+        mock_subprocess.return_value = _mock_popen(returncode=1)
 
         with pytest.raises(RuntimeError, match="Julia data fusion failed for NDVI at tile T11SPA with exit code 1"):
             process_julia_data_fusion(
