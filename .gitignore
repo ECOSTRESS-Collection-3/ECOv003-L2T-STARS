@@ -168,3 +168,6 @@ cython_debug/
 data/
 
 repomix-output.xml
+target/
+ECOv003_L2T_STARS/*.so
+ECOv003_L2T_STARS/*.pyd

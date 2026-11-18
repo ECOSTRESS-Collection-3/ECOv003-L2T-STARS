@@ -1,0 +1,16 @@
+[package]
+name = "stars_rust"
+version = "0.1.0"
+edition = "2021"
+description = "Rust/PyO3 accelerated STARS data fusion kernel for ECOv003-L2T-STARS"
+
+[lib]
+name = "_stars_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"
+rayon = "1.10"
+faer = "0.20"
+sobol_burley = "0.5"
