@@ -105,5 +105,11 @@ def test() -> int:
     return 0
 
 
+test_python.__test__ = False
+test_rust.__test__ = False
+test_julia.__test__ = False
+test.__test__ = False
+
+
 if __name__ == "__main__":
     raise SystemExit(test())

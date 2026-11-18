@@ -70,3 +70,9 @@ include = [
 
 [tool.setuptools.dynamic]
 version = { attr = "ECOv003_L2T_STARS.version.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore:The 'mode.chained_assignment' option is deprecated:Warning:sentinel_tiles",
+]
