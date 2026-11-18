@@ -257,14 +257,18 @@ def process_rust_data_fusion(
     t_inputs_sec = perf_counter() - t_inputs_start
     logger.info(f"[Rust] input loading & preprocessing completed in {t_inputs_sec:.2f} s")
 
-    # Spatial variance estimation + GDAL cubicspline resampling
+    # Spatial variance estimation
     t_cov_start = perf_counter()
     sp_var = _stars_rust.estimate_spatial_variance(
         np.ascontiguousarray(cov_stack),
         float(coarse_cell_size),
         float(fine_cell_size),
     )
+    t_cov_sec = perf_counter() - t_cov_start
+    logger.info(f"[Rust] spatial variance estimation completed in {t_cov_sec:.2f} s")
 
+    # GDAL cubic_spline resampling to fine grid
+    t_resample_start = perf_counter()
     src_log_sd = np.log(np.sqrt(sp_var)).T.astype(np.float64)
     sp_rs_yx = np.full((fine_ny, fine_nx), np.nan, dtype=np.float64)
     reproject(
@@ -282,8 +286,8 @@ def process_rust_data_fusion(
     if np.any(np.isnan(sp_rs)):
         sp_rs[np.isnan(sp_rs)] = np.nanmean(sp_rs)
     cov_scale = np.ascontiguousarray(np.exp(sp_rs))
-    t_cov_sec = perf_counter() - t_cov_start
-    logger.info(f"[Rust] spatial variance estimation & resampling completed in {t_cov_sec:.2f} s")
+    t_resample_sec = perf_counter() - t_resample_start
+    logger.info(f"[Rust] cubic-spline covariance resampling completed in {t_resample_sec:.2f} s")
 
     n_windows = coarse_nx * coarse_ny
     logger.info(
@@ -330,7 +334,7 @@ def process_rust_data_fusion(
     t_total_sec = perf_counter() - t0
     logger.info(
         f"[Rust] timing summary ({product_name}, tile {tile}): "
-        f"inputs={t_inputs_sec:.2f}s, cov_est={t_cov_sec:.2f}s, "
+        f"inputs={t_inputs_sec:.2f}s, cov_est={t_cov_sec:.2f}s, resample={t_resample_sec:.2f}s, "
         f"fusion={t_fusion_sec:.2f}s, write={t_write_sec:.2f}s, total={t_total_sec:.2f}s"
     )
     logger.info(f"[Rust] finished STARS data fusion for {product_name} at tile {tile} in {t_total_sec:.2f} s")

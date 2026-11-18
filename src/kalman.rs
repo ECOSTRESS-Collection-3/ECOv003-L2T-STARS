@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 use faer::linalg::matmul::matmul;
 use faer::prelude::*;
@@ -45,6 +46,7 @@ pub struct FusionOutputs {
 
 /// Port of Julia `coarse_fine_scene_fusion_cbias_pmap` + `coarse_fine_fusion_cbias_dict`.
 pub fn run_scene_fusion(inp: &FusionInputs<'_>, num_workers: usize) -> FusionOutputs {
+    let t_total = Instant::now();
     let window_csize = inp.coarse_csize;
     let target_csize = inp.fine_csize;
     let window_origin = inp.coarse_origin;
@@ -68,6 +70,13 @@ pub fn run_scene_fusion(inp: &FusionInputs<'_>, num_workers: usize) -> FusionOut
     let abs_fine_csize = [target_csize[0].abs(), target_csize[1].abs()];
     let abs_coarse_csize = [window_csize[0].abs(), window_csize[1].abs()];
 
+    let t_pool = Instant::now();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_workers.max(1))
+        .build()
+        .expect("failed to build rayon thread pool");
+    let pool_init_sec = t_pool.elapsed().as_secs_f64();
+
     let pb = ProgressBar::new(n_win as u64);
     pb.set_style(
         ProgressStyle::with_template(
@@ -78,11 +87,7 @@ pub fn run_scene_fusion(inp: &FusionInputs<'_>, num_workers: usize) -> FusionOut
     );
     let completed = AtomicUsize::new(0);
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(num_workers.max(1))
-        .build()
-        .expect("failed to build rayon thread pool");
-
+    let t_solve = Instant::now();
     let results: Vec<WindowResult> = pool.install(|| {
         win_indices
             .par_iter()
@@ -109,9 +114,10 @@ pub fn run_scene_fusion(inp: &FusionInputs<'_>, num_workers: usize) -> FusionOut
             })
             .collect()
     });
-
+    let solve_sec = t_solve.elapsed().as_secs_f64();
     pb.finish_and_clear();
 
+    let t_assemble = Instant::now();
     let mut fused_mean = Array2::<f64>::zeros((target_ndims[0], target_ndims[1]));
     let mut fused_sd = Array2::<f64>::zeros((target_ndims[0], target_ndims[1]));
     let mut fused_bias = Array2::<f64>::zeros((window_ndims[0], window_ndims[1]));
@@ -125,6 +131,18 @@ pub fn run_scene_fusion(inp: &FusionInputs<'_>, num_workers: usize) -> FusionOut
             fused_sd[[ti - 1, tj - 1]] = res.target_sd[idx];
         }
     }
+    let assemble_sec = t_assemble.elapsed().as_secs_f64();
+    let total_sec = t_total.elapsed().as_secs_f64();
+    let win_per_sec = if solve_sec > 0.0 {
+        (n_win as f64) / solve_sec
+    } else {
+        0.0
+    };
+
+    eprintln!(
+        "[Rust] kernel timing breakdown: pool_init={:.3}s, kalman_solve={:.2}s ({:.1} windows/s), assemble={:.3}s, kernel_total={:.2}s",
+        pool_init_sec, solve_sec, win_per_sec, assemble_sec, total_sec
+    );
 
     FusionOutputs {
         fused_mean,
@@ -256,20 +274,32 @@ fn solve_window(
     let mut p_cur = Mat::<f64>::zeros(n, n);
     let mut q_mat = Mat::<f64>::zeros(n, n);
     let mut sqrt_pars = vec![0.0f64; nf];
-    let mut sqrt_q_diag = vec![0.0f64; nf];
 
     for (idx, &[i, j]) in bau_ij.iter().enumerate() {
         let ii = i - 1;
         let jj = j - 1;
         x_cur[idx] = inp.prior_mean[[ii, jj]];
         p_cur[(idx, idx)] = inp.prior_var[[ii, jj]];
-        let sc = inp.cov_scale[[ii, jj]];
-        sqrt_pars[idx] = sc;
-        let qv = inp.cov_wt * sc * sc;
-        q_mat[(idx, idx)] = qv;
-        sqrt_q_diag[idx] = qv.sqrt();
+        sqrt_pars[idx] = inp.cov_scale[[ii, jj]];
     }
 
+    // Q[1:nf, 1:nf] = cvs * exp_cor(target_coords', range, 1e-10) * cvs
+    let inv_range = 1.0 / inp.coarse_cell_size;
+    for r in 0..nf {
+        let sr = sqrt_pars[r];
+        let xr = bau_xy[r][0];
+        let yr = bau_xy[r][1];
+        q_mat[(r, r)] = sr * sr * (1.0 + 1e-10);
+        for c in (r + 1)..nf {
+            let dist = (xr - bau_xy[c][0]).hypot(yr - bau_xy[c][1]);
+            let corr = (-dist * inv_range).exp();
+            let val = sr * corr * sqrt_pars[c];
+            q_mat[(r, c)] = val;
+            q_mat[(c, r)] = val;
+        }
+    }
+
+    // Bias states and diagonal process noise Q[(nf+1):end] = 1e-6
     let mut bias_ij_ordered = Vec::with_capacity(nb);
     let mut bias_xy_ordered = Vec::with_capacity(nb);
     for (b_pos, &orig_idx) in pp.iter().enumerate() {
@@ -279,60 +309,7 @@ fn solve_window(
         let st = nf + b_pos;
         x_cur[st] = inp.prior_bias_mean[[ci - 1, cj - 1]];
         p_cur[(st, st)] = inp.prior_bias_var[[ci - 1, cj - 1]];
-        q_mat[(st, st)] = 1e-10;
-    }
-
-    let inv_range = 1.0 / inp.coarse_cell_size;
-    let mut c_fine = Mat::<f64>::zeros(nf, nf);
-    for r in 0..nf {
-        let sr = sqrt_pars[r];
-        let xr = bau_xy[r][0];
-        let yr = bau_xy[r][1];
-        c_fine[(r, r)] = sr * sr + 1e-10;
-        for c in (r + 1)..nf {
-            let dist = (xr - bau_xy[c][0]).hypot(yr - bau_xy[c][1]);
-            let corr = (-dist * inv_range).exp();
-            let val = sr * corr * sqrt_pars[c];
-            c_fine[(r, c)] = val;
-            c_fine[(c, r)] = val;
-        }
-    }
-
-    let mut c_bias = Mat::<f64>::zeros(nb, nb);
-    for r in 0..nb {
-        c_bias[(r, r)] = 1.0 + 1e-6;
-        let xr = bias_xy_ordered[r][0];
-        let yr = bias_xy_ordered[r][1];
-        for c in (r + 1)..nb {
-            let dist = (xr - bias_xy_ordered[c][0]).hypot(yr - bias_xy_ordered[c][1]);
-            let corr = (-dist * inv_range).exp();
-            c_bias[(r, c)] = corr;
-            c_bias[(c, r)] = corr;
-        }
-    }
-
-    for r in 0..nf {
-        let sqr = sqrt_q_diag[r];
-        let xr = bau_xy[r][0];
-        let yr = bau_xy[r][1];
-        for c in (r + 1)..nf {
-            let dist = (xr - bau_xy[c][0]).hypot(yr - bau_xy[c][1]);
-            let corr = (-dist * inv_range).exp();
-            let val = sqr * corr * sqrt_q_diag[c];
-            q_mat[(r, c)] = val;
-            q_mat[(c, r)] = val;
-        }
-    }
-    for r in 0..nb {
-        let xr = bias_xy_ordered[r][0];
-        let yr = bias_xy_ordered[r][1];
-        for c in (r + 1)..nb {
-            let dist = (xr - bias_xy_ordered[c][0]).hypot(yr - bias_xy_ordered[c][1]);
-            let corr = (-dist * inv_range).exp();
-            let val = 1e-5 * corr * 1e-5;
-            q_mat[(nf + r, nf + c)] = val;
-            q_mat[(nf + c, nf + r)] = val;
-        }
+        q_mat[(st, st)] = 1e-6;
     }
 
     let hx = abs_coarse_csize[0] / 2.0 + 1e-12;
@@ -368,34 +345,32 @@ fn solve_window(
     let mut h_t_buf = Mat::<f64>::zeros(n, max_m);
     let mut hp_pt_buf = Mat::<f64>::zeros(n, max_m);
     let mut s_buf = Mat::<f64>::zeros(max_m, max_m);
+    let mut rhs_buf = Mat::<f64>::zeros(max_m, n);
+    let mut k_buf = Mat::<f64>::zeros(n, max_m);
     let mut hp_pred_buf = Mat::<f64>::zeros(max_m, n);
+    let mut res_pred = Vec::with_capacity(max_m);
+
+    let ar = inp.ar_par;
+    let ar2 = ar * ar;
 
     for t in 1..=inp.n_times {
-        let t2 = t + 1;
-
-        if t2 > 2 {
-            for idx in 0..nf {
-                x_pred[idx] = inp.ar_par * x_cur[idx];
+        for idx in 0..nf {
+            x_pred[idx] = ar * x_cur[idx];
+        }
+        for idx in nf..n {
+            x_pred[idx] = x_cur[idx];
+        }
+        for r in 0..n {
+            for c in 0..n {
+                let mult = if r < nf && c < nf {
+                    ar2
+                } else if r < nf || c < nf {
+                    ar
+                } else {
+                    1.0
+                };
+                p_pred[(r, c)] = mult * p_cur[(r, c)] + q_mat[(r, c)];
             }
-            for idx in nf..n {
-                x_pred[idx] = x_cur[idx];
-            }
-            let ar2 = inp.ar_par * inp.ar_par;
-            for r in 0..n {
-                for c in 0..n {
-                    let mult = if r < nf && c < nf {
-                        ar2
-                    } else if r < nf || c < nf {
-                        inp.ar_par
-                    } else {
-                        1.0
-                    };
-                    p_pred[(r, c)] = mult * p_cur[(r, c)] + q_mat[(r, c)];
-                }
-            }
-        } else {
-            x_pred.copy_from_slice(&x_cur);
-            p_pred.copy_from(&p_cur);
         }
 
         y_vec.clear();
@@ -484,35 +459,18 @@ fn solve_window(
         let h_t = h_t_buf.as_ref().submatrix(0, 0, n, m);
         let mut hp_pt = hp_pt_buf.as_mut().submatrix_mut(0, 0, n, m);
         let mut s_mat = s_buf.as_mut().submatrix_mut(0, 0, m, m);
+        let mut rhs = rhs_buf.as_mut().submatrix_mut(0, 0, m, n);
+        let mut k_mat = k_buf.as_mut().submatrix_mut(0, 0, n, m);
         let mut hp_pred = hp_pred_buf.as_mut().submatrix_mut(0, 0, m, n);
 
-        if t2 == 2 {
-            matmul(
-                hp_pt.as_mut().submatrix_mut(0, 0, nf, m),
-                c_fine.as_ref(),
-                h_t.submatrix(0, 0, nf, m),
-                None,
-                1.0,
-                Parallelism::None,
-            );
-            matmul(
-                hp_pt.as_mut().submatrix_mut(nf, 0, nb, m),
-                c_bias.as_ref(),
-                h_t.submatrix(nf, 0, nb, m),
-                None,
-                1.0,
-                Parallelism::None,
-            );
-        } else {
-            matmul(
-                hp_pt.as_mut(),
-                p_pred.as_ref(),
-                h_t,
-                None,
-                1.0,
-                Parallelism::None,
-            );
-        }
+        matmul(
+            hp_pt.as_mut(),
+            p_pred.as_ref(),
+            h_t,
+            None,
+            1.0,
+            Parallelism::None,
+        );
 
         matmul(
             s_mat.as_mut(),
@@ -526,49 +484,33 @@ fn solve_window(
             s_mat[(idx, idx)] += err_vars[idx];
         }
 
-        let k_mat = match s_mat.as_ref().cholesky(faer::Side::Lower) {
+        for r in 0..m {
+            for c in 0..n {
+                rhs[(r, c)] = hp_pt[(c, r)];
+            }
+        }
+        match s_mat.as_ref().cholesky(faer::Side::Lower) {
             Ok(chol) => {
-                let mut rhs = Mat::<f64>::zeros(m, n);
-                for r in 0..m {
-                    for c in 0..n {
-                        rhs[(r, c)] = hp_pt[(c, r)];
-                    }
-                }
                 chol.solve_in_place(rhs.as_mut());
-                let mut k = Mat::<f64>::zeros(n, m);
-                for r in 0..n {
-                    for c in 0..m {
-                        k[(r, c)] = rhs[(c, r)];
-                    }
-                }
-                k
             }
             Err(_) => {
                 let lu = s_mat.as_ref().partial_piv_lu();
-                let mut rhs = Mat::<f64>::zeros(m, n);
-                for r in 0..m {
-                    for c in 0..n {
-                        rhs[(r, c)] = hp_pt[(c, r)];
-                    }
-                }
                 lu.solve_in_place(rhs.as_mut());
-                let mut k = Mat::<f64>::zeros(n, m);
-                for r in 0..n {
-                    for c in 0..m {
-                        k[(r, c)] = rhs[(c, r)];
-                    }
-                }
-                k
             }
-        };
+        }
+        for r in 0..n {
+            for c in 0..m {
+                k_mat[(r, c)] = rhs[(c, r)];
+            }
+        }
 
-        let mut res_pred = vec![0.0f64; m];
+        res_pred.clear();
         for r in 0..m {
             let mut hx = 0.0;
             for c in 0..n {
                 hx += ht[(r, c)] * x_pred[c];
             }
-            res_pred[r] = y_vec[r] - hx;
+            res_pred.push(y_vec[r] - hx);
         }
 
         for r in 0..n {
@@ -607,7 +549,7 @@ fn solve_window(
     }
 
     let bias_mean = x_cur[nf];
-    let bias_sd = p_cur[(nf, nf)].max(0.0).sqrt();
+    let bias_sd = p_cur[(nf, nf)].max(0.0);
 
     WindowResult {
         target_ij,
