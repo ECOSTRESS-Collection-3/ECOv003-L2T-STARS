@@ -12,6 +12,25 @@ using Statistics
 using Distributed
 using ArchGDAL
 
+struct CustomLogger <: AbstractLogger
+    stream::IO
+    min_level::LogLevel
+end
+
+Logging.min_enabled_level(logger::CustomLogger) = logger.min_level
+
+function Logging.shouldlog(logger::CustomLogger, level, _module, group, id)
+    return level >= logger.min_level
+end
+
+function Logging.handle_message(logger::CustomLogger, level, message, _module, group, id, file, line; kwargs...)
+    t = Dates.format(now(), "yyyy-mm-dd HH:MM:SS")
+    println(logger.stream, "[$t $(uppercase(string(level)))] [Julia] $message")
+    flush(logger.stream)
+end
+
+global_logger(CustomLogger(stdout, Logging.Info))
+
 @info "processing STARS data fusion"
 
 wrkrs = parse(Int64, ARGS[1])
@@ -31,24 +50,6 @@ DEFAULT_SD = 0.01
 DEFAULT_BIAS_MEAN = 0.0
 DEFAULT_BIAS_SD = 0.001
 
-struct CustomLogger <: AbstractLogger
-    stream::IO
-    min_level::LogLevel
-end
-
-Logging.min_enabled_level(logger::CustomLogger) = logger.min_level
-
-function Logging.shouldlog(logger::CustomLogger, level, _module, group, id)
-    return level >= logger.min_level
-end
-
-function Logging.handle_message(logger::CustomLogger, level, message, _module, group, id, file, line; kwargs...)
-    t = Dates.format(now(), "yyyy-mm-dd HH:MM:SS")
-    println(logger.stream, "[$t $(uppercase(string(level)))] $message")
-end
-
-global_logger(CustomLogger(stdout, Logging.Info))
-
 tile = ARGS[2]
 @info "tile: $(tile)"
 coarse_cell_size = parse(Int64, ARGS[3])
@@ -66,7 +67,7 @@ HLS_end_date = Date(ARGS[8])
 downsampled_directory = ARGS[9]
 @info "downsampled inputs directory: $(downsampled_directory)"
 product_name = ARGS[10]
-@info "Computing $(product_name) product"
+@info "computing $(product_name) product"
 posterior_filename = ARGS[11]
 @info "posterior filename: $(posterior_filename)"
 posterior_UQ_filename = ARGS[12]
@@ -78,19 +79,20 @@ posterior_bias_filename = ARGS[14]
 posterior_bias_UQ_filename = ARGS[15]
 @info "posterior bias UQ filename: $(posterior_bias_UQ_filename)"
 
+function read_raster_logged(label::String, filename::String)
+    @info "reading $(label): $(filename)"
+    return Raster(filename)
+end
+
 if size(ARGS)[1] >= 19
     prior_filename = ARGS[16]
-    @info "prior filename: $(prior_filename)"
-    prior_mean = Array(Raster(prior_filename))
+    prior_mean = Array(read_raster_logged("prior mean", prior_filename))
     prior_UQ_filename = ARGS[17]
-    @info "prior UQ filename: $(prior_UQ_filename)"
-    prior_sd = Array(Raster(prior_UQ_filename))
+    prior_sd = Array(read_raster_logged("prior UQ", prior_UQ_filename))
     prior_bias_filename = ARGS[18]
-    @info "prior bias filename: $(prior_bias_filename)"
-    prior_bias_mean = Array(Raster(prior_bias_filename))
+    prior_bias_mean = Array(read_raster_logged("prior bias", prior_bias_filename))
     prior_bias_UQ_filename = ARGS[19]
-    @info "prior bias UQ filename: $(prior_bias_UQ_filename)"
-    prior_bias_sd = Array(Raster(prior_bias_UQ_filename))
+    prior_bias_sd = Array(read_raster_logged("prior bias UQ", prior_bias_UQ_filename))
 
     replace!(prior_bias_mean, missing => NaN)
     replace!(prior_bias_sd, missing => NaN)
@@ -98,9 +100,9 @@ if size(ARGS)[1] >= 19
     replace!(prior_sd, missing => NaN)
     ## if we do flag as HLS observed within last 7 days then we don't depend on prior flags
     # prior_flag_filename = ARGS[20]
-    # @info "prior flag filename: $(prior_flag_filename)"
-    # prior_flag = Raster(prior_flag_filename)
+    # prior_flag = read_raster_logged("prior flag", prior_flag_filename)
 else
+    @info "no prior files provided; using default prior initialization"
     prior_mean = nothing
 end
 
@@ -155,15 +157,15 @@ for (i, date) in enumerate(covariance_dates)
     timestep_dims = (x_coarse, y_coarse, timestep_index)
 
     if match === nothing
-        @info "coarse image is not available on $(date)"
+        @info "coarse covariance image is not available on $(date)"
         covariance_image = Raster(fill(NaN, x_coarse_size, y_coarse_size, 1), dims=timestep_dims, missingval=NaN)
-        @info size(covariance_image)
+        @info "allocated empty covariance raster of size $(size(covariance_image))"
     else
         filename = coarse_image_filenames[match]
-        @info "ingesting coarse image on $(date): $(filename)"
-        covariance_image = Raster(reshape(Raster(filename), x_coarse_size, y_coarse_size, 1), dims=timestep_dims, missingval=NaN)
+        raw_covariance = read_raster_logged("coarse covariance image on $(date)", filename)
+        covariance_image = Raster(reshape(raw_covariance, x_coarse_size, y_coarse_size, 1), dims=timestep_dims, missingval=NaN)
         replace!(covariance_image, missing => NaN)
-        @info size(covariance_image)
+        @info "loaded covariance raster of size $(size(covariance_image))"
     end
 
     push!(covariance_images, covariance_image)
@@ -190,10 +192,10 @@ for (i, date) in enumerate(dates)
         timestep_index = Band(tk:tk)
         timestep_dims = (x_coarse, y_coarse, timestep_index)
         filename = coarse_image_filenames[matched]
-        @info "ingesting coarse image on $(date): $(filename)"
-        coarse_image = Raster(reshape(Raster(filename), x_coarse_size, y_coarse_size, 1), dims=timestep_dims, missingval=NaN)
+        raw_coarse = read_raster_logged("coarse image on $(date)", filename)
+        coarse_image = Raster(reshape(raw_coarse, x_coarse_size, y_coarse_size, 1), dims=timestep_dims, missingval=NaN)
         replace!(coarse_image, missing => NaN)
-        @info size(coarse_image)
+        @info "loaded coarse raster of size $(size(coarse_image))"
         push!(coarse_dates, dates[i])
         push!(coarse_images, coarse_image)
         global tk += 1
@@ -224,10 +226,10 @@ for (i, date) in enumerate(dates)
         timestep_index = Band(tk:tk)
         timestep_dims = (x_fine, y_fine, timestep_index)
         filename = fine_image_filenames[match]
-        @info "ingesting fine image on $(date): $(filename)"
-        fine_image = Raster(reshape(Raster(filename), x_fine_size, y_fine_size, 1), dims=timestep_dims, missingval=NaN)
+        raw_fine = read_raster_logged("fine image on $(date)", filename)
+        fine_image = Raster(reshape(raw_fine, x_fine_size, y_fine_size, 1), dims=timestep_dims, missingval=NaN)
         replace!(fine_image, missing => NaN)
-        @info size(fine_image)
+        @info "loaded fine raster of size $(size(fine_image))"
         push!(fine_images, fine_image)
         push!(fine_dates, dates[i])
         global tk += 1
@@ -265,8 +267,8 @@ if sum(fine_pixels .== 0) > 0
             else
                 timestep_dims = (x_fine, y_fine, Band(1:1))
                 filename = fine_image_filenames[match]
-                @info "ingesting fine image for 7-day flag on $(date): $(filename)"
-                fine_image = Raster(reshape(Raster(filename), x_fine_size, y_fine_size, 1), dims=timestep_dims, missingval=NaN)
+                raw_flag_fine = read_raster_logged("fine image for 7-day flag on $(date)", filename)
+                fine_image = Raster(reshape(raw_flag_fine, x_fine_size, y_fine_size, 1), dims=timestep_dims, missingval=NaN)
                 replace!(fine_image, missing => NaN)
 
                 fine_pixels .+= sum(.!isnan.(fine_image), dims=3)
@@ -386,6 +388,7 @@ else
     );
 end;
 
+@info "data fusion complete; removing workers"
 ## remove workers
 rmprocs(workers())
 
@@ -400,8 +403,10 @@ dd[prior_flag, :] .= NaN # set no data to NaN
 
 # --- ROBUST GEOTIFF WRITER ---
 # Helper function that clones spatial reference and transforms directly from template GeoTIFFs
-function safe_write_geotiff(output_filename::String, template_filename::String, matrix_data::AbstractMatrix, nodata_val)
+function safe_write_geotiff(label::String, output_filename::String, template_filename::String, matrix_data::AbstractMatrix, nodata_val)
     mkpath(dirname(output_filename))
+    @info "reading template GeoTIFF for $(label): $(template_filename)"
+    @info "writing $(label) GeoTIFF: $(output_filename)"
     
     ArchGDAL.read(template_filename) do template_ds
         driver = ArchGDAL.getdriver("GTiff")
@@ -422,6 +427,8 @@ function safe_write_geotiff(output_filename::String, template_filename::String, 
             ArchGDAL.write!(band, matrix_data)
         end
     end
+
+    @info "wrote $(label) GeoTIFF: $(output_filename)"
 end
 
 # Identify reliable template files for projection and bounds cloning
@@ -433,24 +440,23 @@ else
     # Fallback to the first existing file in downsampled_directory matching fine_cell_size
     first(glob("*_$(fine_cell_size)m.tif", downsampled_directory))
 end
+@info "selected fine template GeoTIFF: $(fine_template)"
 
 coarse_template = if !isempty(coarse_image_filenames)
     coarse_image_filenames[1]
 else
     first(glob("*_$(coarse_cell_size)m.tif", downsampled_directory))
 end
+@info "selected coarse template GeoTIFF: $(coarse_template)"
 
-@info "writing fused mean: $(posterior_filename)"
-safe_write_geotiff(posterior_filename, fine_template, Float32.(dd[:, :, 1]), NaN32)
+safe_write_geotiff("fused mean", posterior_filename, fine_template, Float32.(dd[:, :, 1]), NaN32)
 
-@info "writing fused flag: $(posterior_flag_filename)"
-safe_write_geotiff(posterior_flag_filename, fine_template, Int32.(hls_flag), Int32(-9999))
+safe_write_geotiff("fused flag", posterior_flag_filename, fine_template, Int32.(hls_flag), Int32(-9999))
 
-@info "writing fused SD: $(posterior_UQ_filename)"
-safe_write_geotiff(posterior_UQ_filename, fine_template, Float32.(fused_sd_images[:, :, 1]), NaN32)
+safe_write_geotiff("fused SD", posterior_UQ_filename, fine_template, Float32.(fused_sd_images[:, :, 1]), NaN32)
 
-@info "writing bias mean: $(posterior_bias_filename)"
-safe_write_geotiff(posterior_bias_filename, coarse_template, Float32.(fused_bias_images[:, :, 1]), NaN32)
+safe_write_geotiff("bias mean", posterior_bias_filename, coarse_template, Float32.(fused_bias_images[:, :, 1]), NaN32)
 
-@info "writing bias SD: $(posterior_bias_UQ_filename)"
-safe_write_geotiff(posterior_bias_UQ_filename, coarse_template, Float32.(fused_bias_sd_images[:, :, 1]), NaN32)
+safe_write_geotiff("bias SD", posterior_bias_UQ_filename, coarse_template, Float32.(fused_bias_sd_images[:, :, 1]), NaN32)
+
+@info "finished STARS data fusion for $(product_name) at tile $(tile)"
