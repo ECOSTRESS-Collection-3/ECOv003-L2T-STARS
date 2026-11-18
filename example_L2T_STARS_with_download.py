@@ -2,6 +2,7 @@ import logging
 from os.path import join, expanduser
 from os import makedirs
 
+import colored_logging as cl
 import numpy as np
 
 from ECOv003_CMR import download_ECOSTRESS_granule
@@ -9,8 +10,7 @@ from ECOv003_granules import open_granule
 from ECOv003_L2T_STARS import generate_L2T_STARS_runconfig, L2T_STARS
 from ECOv003_L2T_STARS.L2TSTARSConfig import L2TSTARSConfig
 
-# Disable logger output
-logging.getLogger().handlers = []
+cl.configure()
 
 # Set working directory
 working_directory = expanduser(join("~", "data", "ECOv003_testing"))
