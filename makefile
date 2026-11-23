@@ -4,8 +4,9 @@ MODULE_NAME = ECOv003_L2T_STARS
 ENVIRONMENT_NAME = $(PACKAGE_NAME)
 PYTHON_VERSION ?= 3.12
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
+REPOMIX_IGNORE := "**/*.lock,**/*.md,**/*.txt,**/*.ipynb,**/Manifest.toml,*-repomix*.xml"
 
-.PHONY: clean rust-clean rust-build rust-rebuild test test-rust smoke-test wheel-test build twine-upload dist install-package install uninstall reinstall environment remove-environment colima-start docker-build docker-build-environment docker-build-installation docker-interactive docker-remove repomix
+.PHONY: clean rust-clean rust-build rust-rebuild test test-rust smoke-test wheel-test build twine-upload dist install-package install uninstall reinstall environment remove-environment colima-start docker-build docker-build-environment docker-build-installation docker-interactive docker-remove repomix repomix-skeleton
 
 # --- Cleaning and Maintenance ---
 
@@ -16,6 +17,7 @@ clean: rust-clean
 	rm -rf dist/
 	rm -rf *.egg-info
 	rm -rf .pytest_cache
+	rm -f *-repomix*.xml
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 
 rust-clean:
@@ -119,5 +121,13 @@ docker-remove:
 	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME)..."
 	docker rmi -f $(DOCKER_IMAGE_NAME)
 
+# --- Repomix ---
+
 repomix:
-	npx repomix --ignore "**/*.lock,**/*.md,**/*.txt,**/*.ipynb"
+	npx repomix -o "$(PACKAGE_NAME)-repomix.xml" --ignore $(REPOMIX_IGNORE) --copy
+
+repomix-skeleton:
+	npx repomix -o "$(PACKAGE_NAME)-repomix-skeleton.xml" --ignore $(REPOMIX_IGNORE) --compress --copy
+
+show-issues:
+	gh issue list --state open --json number,title,body --template '{{range .}}## #{{.number}}: {{.title}}{{"\n\n"}}{{.body}}{{"\n\n---\n\n"}}{{end}}'
