@@ -1,133 +1,235 @@
-# Define package and environment variables
+# Define the package name, environment name, and Python version
 PACKAGE_NAME = ECOv003-L2T-STARS
-MODULE_NAME = ECOv003_L2T_STARS
+MODULE_NAME = $(subst -,_,$(PACKAGE_NAME))
 ENVIRONMENT_NAME = $(PACKAGE_NAME)
-PYTHON_VERSION ?= 3.12
 DOCKER_IMAGE_NAME = $(shell echo $(PACKAGE_NAME) | tr '[:upper:]' '[:lower:]')
-REPOMIX_IGNORE := "**/*.lock,**/*.md,**/*.txt,**/*.ipynb,**/Manifest.toml,*-repomix*.xml"
+PYTHON_VERSION = $(if $(PYTHON),$(PYTHON),3.12)
 
-.PHONY: clean rust-clean rust-build rust-rebuild test test-rust smoke-test wheel-test build twine-upload dist install-package install uninstall reinstall environment remove-environment colima-start docker-build docker-build-environment docker-build-installation docker-interactive docker-remove repomix repomix-skeleton
+# Allow passing extra flags via command line: make <target> ARGS="--progress=plain"
+ARGS ?=
+DOCKER_BUILD_FLAGS ?= --platform linux/amd64 $(ARGS)
+DOCKER_RUN_FLAGS ?= --platform linux/amd64
 
-# --- Cleaning and Maintenance ---
+# Include a Makefile.local to override things, if found
+-include Makefile.local
 
-clean: rust-clean
-	@echo "Cleaning up build artifacts..."
+.PHONY: clean test verify build wheel sdist twine-upload dist install uninstall reinstall \
+        environment remove-environment colima-start colima-reset \
+        docker-build docker-build-toolchain docker-build-installation docker-build-runtime \
+        docker-rebuild-toolchain docker-rebuild-installation docker-rebuild-runtime docker-rebuild-all \
+        docker-interactive docker-remove docker-clean \
+        smoke-test smoke-test-cli smoke-test-python smoke-test-rust smoke-test-julia docker-smoke-test \
+        test-rust test-julia install-julia \
+        compile-documentation repomix generate-history show-issues
+
+# Clean up build artifacts and temporary files
+clean:
 	rm -rf *.o *.out *.log
 	rm -rf build/
 	rm -rf dist/
+	rm -rf target/
 	rm -rf *.egg-info
 	rm -rf .pytest_cache
-	rm -f *-repomix*.xml
+	rm -f $(MODULE_NAME)/*.so $(MODULE_NAME)/*.pyd
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 
-rust-clean:
-	@echo "Cleaning Rust build artifacts..."
-	rm -rf target/
-	rm -f $(MODULE_NAME)/_stars_rust*.so $(MODULE_NAME)/_stars_rust*.pyd
+# Run Python unit tests using pytest
+test:
+	SKIP_EARTHDATA_LOGIN=true pytest -vv -p no:warnings
 
-rust-build:
-	@echo "Building and installing the Rust extension and dev dependencies..."
-	python -m maturin develop --release --extras dev
-
-rust-rebuild:
-	$(MAKE) rust-clean
-	$(MAKE) rust-build
-
-# --- Testing ---
-
+# Run Rust crate formatting, clippy, and unit tests
 test-rust:
-	@echo "Running Rust formatting, clippy, and unit tests..."
 	cargo fmt -- --check
-	cargo clippy --all-targets -- -D warnings
-	DYLD_FALLBACK_LIBRARY_PATH="$(shell python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')" cargo test --release
+	cargo clippy --locked --all-targets -- -D warnings
+	cargo test --locked --release
 
-test: rust-build test-rust
-	@echo "Running pytest suite..."
-	PYTHONPATH=. pytest
+# Run optional legacy Julia smoke tests
+test-julia:
+	$(PACKAGE_NAME) test-julia
 
+# Install optional legacy Julia runtime and pinned packages
+install-julia:
+	$(PACKAGE_NAME) install-julia
+
+# Run the smoke test locally using the Python API
 smoke-test:
-	@echo "Running smoke tests..."
-	PYTHONPATH=. python -I -m $(MODULE_NAME).smoke_test
+	python -c "import $(MODULE_NAME); exit($(MODULE_NAME).test())"
 
-wheel-test:
-	@echo "Building release wheel and running isolated smoke test..."
-	rm -rf dist/
-	python -m maturin build --release --out dist
-	python -m venv /tmp/ecov003_l2t_stars_wheel_verify
-	/tmp/ecov003_l2t_stars_wheel_verify/bin/pip install --upgrade pip
-	/tmp/ecov003_l2t_stars_wheel_verify/bin/pip install dist/*.whl
-	cd /tmp && /tmp/ecov003_l2t_stars_wheel_verify/bin/python -I -m $(MODULE_NAME).smoke_test
-	rm -rf /tmp/ecov003_l2t_stars_wheel_verify
+# Run the smoke test locally via the installed CLI sub-command
+smoke-test-cli:
+	$(PACKAGE_NAME) test
 
-# --- Package Management ---
+smoke-test-python:
+	$(PACKAGE_NAME) test-python
 
-build:
-	@echo "Building package..."
-	python -m build
+smoke-test-rust:
+	$(PACKAGE_NAME) test-rust
 
+smoke-test-julia:
+	$(PACKAGE_NAME) test-julia
+
+# Verify offline Rust STARS data fusion against test_bundle reference outputs
+verify:
+	python test_rust_output.py
+
+# Build the Python wheel and source distribution via maturin
+wheel:
+	maturin build --locked --release --out dist
+
+sdist:
+	maturin sdist --out dist
+
+build: wheel sdist
+
+# Upload the built package to PyPI using Twine
 twine-upload:
-	@echo "Uploading package to PyPI..."
 	twine upload dist/*
 
-dist: clean build twine-upload
-	@echo "Distribution process complete."
+# Clean, build, and upload the package
+dist:
+	make clean
+	make build
+	make twine-upload
 
-install-package: rust-build
-	@echo "Development package and Rust extension installed."
+# Install the package in editable mode with development dependencies
+install:
+	maturin develop --locked --release --extras dev
 
-install: install-package
-	@echo "Package installed; source builds require a Rust toolchain."
-
+# Uninstall the package
 uninstall:
-	@echo "Uninstalling $(PACKAGE_NAME)..."
-	pip uninstall $(PACKAGE_NAME)
+	pip uninstall -y $(PACKAGE_NAME)
 
-reinstall: uninstall install
-	@echo "Package reinstalled."
+# Reinstall the package (uninstall and then install)
+reinstall:
+	make uninstall
+	make install
 
-# --- Environment Management ---
-
+# Create a new Conda/Mamba environment with the specified Python version
 environment:
-	@echo "Creating mamba environment: $(ENVIRONMENT_NAME)..."
-	mamba create -y -n $(ENVIRONMENT_NAME) -c conda-forge python=$(PYTHON_VERSION) pip "setuptools<81" rust maturin
+	mamba create -y -n $(ENVIRONMENT_NAME) -c conda-forge python=$(PYTHON_VERSION)
 
+# Remove the Conda/Mamba environment
 remove-environment:
-	@echo "Removing mamba environment: $(ENVIRONMENT_NAME)..."
 	mamba env remove -y -n $(ENVIRONMENT_NAME)
 
-# --- Docker & Colima ---
-
+# Start Colima with the required settings to prevent Rosetta 2 crashes
 colima-start:
-	@echo "Starting Colima..."
-	colima start -m 16 -a x86_64 -d 100
+	colima start --vm-type=vz --vz-rosetta=true --cpu 6 --memory 16 --disk 100
 
-docker-build:
-	@echo "Building Docker image: $(DOCKER_IMAGE_NAME):latest..."
-	docker build -t $(DOCKER_IMAGE_NAME):latest .
+# Completely reset the Colima VM before starting to prevent vz/qemu driver hanging issues
+colima-reset:
+	colima delete -f
+	colima start --vm-type=vz --vz-rosetta=true --cpu 6 --memory 16 --disk 100
 
-docker-build-environment:
-	@echo "Building Docker environment target..."
-	docker build --target environment -t $(DOCKER_IMAGE_NAME):latest .
+# Build the Docker image (final runtime stage)
+docker-build: docker-build-runtime
 
+# Build the Docker image up to the 'toolchain' target stage
+docker-build-toolchain:
+	DOCKER_BUILDKIT=1 docker build --target toolchain $(DOCKER_BUILD_FLAGS) -t $(DOCKER_IMAGE_NAME):toolchain .
+
+# Build the Docker image up to the 'build' target stage
 docker-build-installation:
-	@echo "Building Docker installation target..."
-	docker build --target installation -t $(DOCKER_IMAGE_NAME):latest .
+	DOCKER_BUILDKIT=1 docker build --target build $(DOCKER_BUILD_FLAGS) -t $(DOCKER_IMAGE_NAME):build .
 
+# Build the Docker image up to the 'runtime' target stage
+docker-build-runtime:
+	DOCKER_BUILDKIT=1 docker build --target runtime $(DOCKER_BUILD_FLAGS) -t $(DOCKER_IMAGE_NAME):latest .
+
+# Build the runtime image and execute smoke tests inside a container
+docker-smoke-test: docker-build-runtime
+	@echo "=== Running Container Smoke Tests ==="
+	docker run --rm $(DOCKER_RUN_FLAGS) $(DOCKER_IMAGE_NAME):latest python -c "import $(MODULE_NAME); raise SystemExit($(MODULE_NAME).test())"
+	docker run --rm $(DOCKER_RUN_FLAGS) $(DOCKER_IMAGE_NAME):latest $(PACKAGE_NAME) test
+	docker run --rm $(DOCKER_RUN_FLAGS) -e SKIP_EARTHDATA_LOGIN=true -v "$(PWD)/tests:/tests:ro" $(DOCKER_IMAGE_NAME):latest pytest /tests/test_import_dependencies.py /tests/test_rust_smoke.py -p no:cacheprovider -p no:warnings -vv
+
+# Granular cache-busting rebuilds (--no-cache-filter)
+docker-rebuild-toolchain:
+	DOCKER_BUILDKIT=1 docker build --no-cache-filter toolchain --target toolchain $(DOCKER_BUILD_FLAGS) -t $(DOCKER_IMAGE_NAME):toolchain .
+
+docker-rebuild-installation:
+	DOCKER_BUILDKIT=1 docker build --no-cache-filter build --target build $(DOCKER_BUILD_FLAGS) -t $(DOCKER_IMAGE_NAME):build .
+
+docker-rebuild-runtime:
+	DOCKER_BUILDKIT=1 docker build --no-cache-filter runtime --target runtime $(DOCKER_BUILD_FLAGS) -t $(DOCKER_IMAGE_NAME):latest .
+
+docker-rebuild-all:
+	DOCKER_BUILDKIT=1 docker build --no-cache --target runtime $(DOCKER_BUILD_FLAGS) -t $(DOCKER_IMAGE_NAME):latest .
+
+# Run the Docker container interactively with the Fish shell
 docker-interactive:
-	@echo "Starting interactive Docker session..."
-	docker run -it $(DOCKER_IMAGE_NAME) fish
+	docker run -it --rm $(DOCKER_RUN_FLAGS) $(DOCKER_IMAGE_NAME):latest /usr/bin/fish
 
+# Remove the Docker image and stage tags
 docker-remove:
-	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME)..."
-	docker rmi -f $(DOCKER_IMAGE_NAME)
+	-docker rmi -f $(DOCKER_IMAGE_NAME):latest $(DOCKER_IMAGE_NAME):build $(DOCKER_IMAGE_NAME):toolchain 2>/dev/null || true
 
-# --- Repomix ---
+# Clean stopped containers, project images, and dangling layers
+docker-clean: docker-remove
+	docker image prune -f
+
+# Compile the ATBD and User Guide from Markdown to PDF
+compile-documentation:
+	bash documentation/ECOv003_L2_STARS_ATBD.sh
+	bash documentation/ECOv003_L2_STARS_User_Guide.sh
 
 repomix:
-	npx repomix -o "$(PACKAGE_NAME)-repomix.xml" --ignore $(REPOMIX_IGNORE) --copy
+	npx repomix -o ECOv003-L2T-STARS-repomix.xml --ignore "**/*.lock,**/*.md,**/*.txt,**/*.ipynb,**/Manifest.toml,*-repomix*.xml"
 
-repomix-skeleton:
-	npx repomix -o "$(PACKAGE_NAME)-repomix-skeleton.xml" --ignore $(REPOMIX_IGNORE) --compress --copy
+generate-history:
+	fish -c ' \
+		git fetch --tags --quiet; \
+		set first_commit (git rev-list --max-parents=0 HEAD | head -n 1); \
+		set releases (gh release list --limit 1000 --json tagName,createdAt --jq "sort_by(.createdAt) | .[].tagName"); \
+		begin; \
+			echo "========================================"; \
+			echo "REPOSITORY RELEASE TIMELINE"; \
+			echo "========================================"; \
+			gh release list --limit 1000; \
+			echo ""; \
+			if test (count $$releases) -ge 1; \
+				set first_rel $$releases[1]; \
+				echo "========================================"; \
+				echo "INITIAL COMMIT ($$first_commit) -> FIRST RELEASE ($$first_rel)"; \
+				echo "========================================"; \
+				git log --reverse --stat -p $$first_rel -- "*.py" "*.rs" "Cargo.toml" "pyproject.toml"; \
+				echo ""; \
+			end; \
+			if test (count $$releases) -ge 2; \
+				for i in (seq 2 (count $$releases)); \
+					set prev_idx (math $$i - 1); \
+					set prev $$releases[$$prev_idx]; \
+					set curr $$releases[$$i]; \
+					echo "========================================"; \
+					echo "RELEASE COMMIT HISTORY: $$prev -> $$curr"; \
+					echo "========================================"; \
+					git log --reverse --stat -p $$prev..$$curr -- "*.py" "*.rs" "Cargo.toml" "pyproject.toml"; \
+					echo ""; \
+				end; \
+			end; \
+			if test (count $$releases) -ge 1; \
+				set latest_rel $$releases[-1]; \
+				echo "========================================"; \
+				echo "LATEST RELEASE ($$latest_rel) -> CURRENT WORKING TREE (HEAD + UNCOMMITTED)"; \
+				echo "========================================"; \
+				git log --reverse --stat -p $$latest_rel..HEAD -- "*.py" "*.rs" "Cargo.toml" "pyproject.toml"; \
+				echo ""; \
+				git status -s -- "*.py" "*.rs" "Cargo.toml" "pyproject.toml"; \
+				echo ""; \
+				git diff HEAD -- "*.py" "*.rs" "Cargo.toml" "pyproject.toml"; \
+			else; \
+				echo "========================================"; \
+				echo "INITIAL COMMIT ($$first_commit) -> CURRENT WORKING TREE"; \
+				echo "========================================"; \
+				git log --reverse --stat -p -- "*.py" "*.rs" "Cargo.toml" "pyproject.toml"; \
+				echo ""; \
+				git status -s -- "*.py" "*.rs" "Cargo.toml" "pyproject.toml"; \
+				echo ""; \
+				git diff HEAD -- "*.py" "*.rs" "Cargo.toml" "pyproject.toml"; \
+			end; \
+		end > release_diffs.patch; \
+	'
+
 
 show-issues:
 	gh issue list --state open --json number,title,body --template '{{range .}}## #{{.number}}: {{.title}}{{"\n\n"}}{{.body}}{{"\n\n---\n\n"}}{{end}}'
