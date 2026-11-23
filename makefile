@@ -41,7 +41,7 @@ test:
 test-rust:
 	cargo fmt -- --check
 	cargo clippy --locked --all-targets -- -D warnings
-	cargo test --locked --release
+	DYLD_FALLBACK_LIBRARY_PATH="$$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')" LD_LIBRARY_PATH="$$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')" cargo test --locked --release
 
 # Run optional legacy Julia smoke tests
 test-julia:
@@ -141,7 +141,7 @@ docker-smoke-test: docker-build-runtime
 	@echo "=== Running Container Smoke Tests ==="
 	docker run --rm $(DOCKER_RUN_FLAGS) $(DOCKER_IMAGE_NAME):latest python -c "import $(MODULE_NAME); raise SystemExit($(MODULE_NAME).test())"
 	docker run --rm $(DOCKER_RUN_FLAGS) $(DOCKER_IMAGE_NAME):latest $(PACKAGE_NAME) test
-	docker run --rm $(DOCKER_RUN_FLAGS) -e SKIP_EARTHDATA_LOGIN=true -v "$(PWD)/tests:/tests:ro" $(DOCKER_IMAGE_NAME):latest pytest /tests/test_import_dependencies.py /tests/test_rust_smoke.py -p no:cacheprovider -p no:warnings -vv
+	docker run --rm $(DOCKER_RUN_FLAGS) -e SKIP_EARTHDATA_LOGIN=true -v "$(PWD)/tests:/tests:ro" $(DOCKER_IMAGE_NAME):latest pytest /tests/test_docker_smoke.py /tests/test_import_dependencies.py /tests/test_rust_smoke.py -p no:cacheprovider -p no:warnings -vv
 
 # Granular cache-busting rebuilds (--no-cache-filter)
 docker-rebuild-toolchain:
@@ -229,7 +229,6 @@ generate-history:
 			end; \
 		end > release_diffs.patch; \
 	'
-
 
 show-issues:
 	gh issue list --state open --json number,title,body --template '{{range .}}## #{{.number}}: {{.title}}{{"\n\n"}}{{.body}}{{"\n\n---\n\n"}}{{end}}'

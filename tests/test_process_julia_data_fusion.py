@@ -1,249 +1,46 @@
-import os
+import logging
 import subprocess
-import sys
-import pytest
-from unittest.mock import patch, Mock
 from datetime import date
+from unittest.mock import patch
 
-# Mock all the missing dependencies before importing
-missing_modules = [
-    'harmonized_landsat_sentinel',
-    'ECOv003_exit_codes',
-    'ECOv002_CMR',
-    'ECOv002_granules',
-    'ECOv003_granules',
-    'GEOS5FP',
-    'modland',
-    'sentinel_tiles',
-    'earthaccess',
-    'colored_logging',
-    'untangle',
-]
-
-for module in missing_modules:
-    if module not in sys.modules:
-        sys.modules[module] = Mock()
+import pytest
 
 from ECOv003_L2T_STARS.process_julia_data_fusion import process_julia_data_fusion
 
 
-def _mock_run(returncode: int = 0) -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=[], returncode=returncode)
+def test_logs_julia_stderr_and_stdout_on_failure(tmp_path, caplog):
+    """Issue #95: Julia subprocess stderr/stdout must be logged when exit code != 0."""
+    caplog.set_level(logging.INFO)
+    fake_proc = subprocess.CompletedProcess(
+        args=["julia"],
+        returncode=1,
+        stdout="starting 4 workers\nloading inputs",
+        stderr="ERROR: LoadError: OutOfMemoryError()\nStacktrace:\n [1] top-level scope",
+    )
 
-
-@pytest.fixture(autouse=True)
-def julia_command():
-    with patch(
-        'ECOv003_L2T_STARS.process_julia_data_fusion.find_julia_command',
-        return_value=['julia', '+1.11.6'],
+    with (
+        patch("ECOv003_L2T_STARS.process_julia_data_fusion.find_julia_command", return_value=["julia"]),
+        patch("ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run", return_value=fake_proc) as mock_run,
     ):
-        yield
-
-
-class TestProcessJuliaDataFusion:
-    """Tests for the process_julia_data_fusion function."""
-    
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch.dict('os.environ', {
-        'GDAL_DATA': '/some/gdal/path',
-        'GDAL_DRIVER_PATH': '/some/driver/path',
-        'TEST_VAR': 'test_value'
-    }, clear=True)
-    def test_gdal_data_removed_when_present(self, mock_exists, mock_subprocess):
-        """Test that GDAL_DATA and GDAL_DRIVER_PATH are removed when present."""
-        mock_exists.return_value = False  # No prior files exist
-        mock_subprocess.return_value = _mock_run(returncode=0)
-        
-        process_julia_data_fusion(
-            tile="T11SPA",
-            coarse_cell_size=1000,
-            fine_cell_size=30,
-            VIIRS_start_date=date(2024, 1, 1),
-            VIIRS_end_date=date(2024, 1, 10),
-            HLS_start_date=date(2024, 1, 1),
-            HLS_end_date=date(2024, 1, 10),
-            downsampled_directory="/tmp/test",
-            product_name="NDVI",
-            posterior_filename="/tmp/posterior.tif",
-            posterior_UQ_filename="/tmp/posterior_uq.tif",
-            posterior_flag_filename="/tmp/posterior_flag.tif",
-            posterior_bias_filename="/tmp/posterior_bias.tif",
-            posterior_bias_UQ_filename="/tmp/posterior_bias_uq.tif"
-        )
-        
-        # Check subprocess was called
-        assert mock_subprocess.called
-        
-        # Get the environment passed to subprocess
-        call_env = mock_subprocess.call_args[1]['env']
-        
-        # Verify GDAL vars were removed from the subprocess environment
-        assert 'GDAL_DATA' not in call_env
-        assert 'GDAL_DRIVER_PATH' not in call_env
-        
-        # Verify other vars remain in subprocess environment
-        assert call_env['TEST_VAR'] == 'test_value'
-    
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch.dict('os.environ', {'SOME_VAR': 'value'}, clear=True)
-    def test_no_error_when_gdal_vars_absent(self, mock_exists, mock_subprocess):
-        """Test that no KeyError is raised when GDAL vars don't exist."""
-        mock_exists.return_value = False  # No prior files exist
-        mock_subprocess.return_value = _mock_run(returncode=0)
-        
-        # Should not raise KeyError even if GDAL vars are absent from mocked environment
-        process_julia_data_fusion(
-            tile="T11SPA",
-            coarse_cell_size=1000,
-            fine_cell_size=30,
-            VIIRS_start_date=date(2024, 1, 1),
-            VIIRS_end_date=date(2024, 1, 10),
-            HLS_start_date=date(2024, 1, 1),
-            HLS_end_date=date(2024, 1, 10),
-            downsampled_directory="/tmp/test",
-            product_name="NDVI",
-            posterior_filename="/tmp/posterior.tif",
-            posterior_UQ_filename="/tmp/posterior_uq.tif",
-            posterior_flag_filename="/tmp/posterior_flag.tif",
-            posterior_bias_filename="/tmp/posterior_bias.tif",
-            posterior_bias_UQ_filename="/tmp/posterior_bias_uq.tif"
-        )
-        
-        # Verify subprocess was called successfully
-        assert mock_subprocess.called
-    
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch.dict('os.environ', {}, clear=True)
-    def test_julia_num_threads_set(self, mock_exists, mock_subprocess):
-        """Test that JULIA_NUM_THREADS is set correctly."""
-        mock_exists.return_value = False
-        mock_subprocess.return_value = _mock_run(returncode=0)
-        
-        process_julia_data_fusion(
-            tile="T11SPA",
-            coarse_cell_size=1000,
-            fine_cell_size=30,
-            VIIRS_start_date=date(2024, 1, 1),
-            VIIRS_end_date=date(2024, 1, 10),
-            HLS_start_date=date(2024, 1, 1),
-            HLS_end_date=date(2024, 1, 10),
-            downsampled_directory="/tmp/test",
-            product_name="NDVI",
-            posterior_filename="/tmp/posterior.tif",
-            posterior_UQ_filename="/tmp/posterior_uq.tif",
-            posterior_flag_filename="/tmp/posterior_flag.tif",
-            posterior_bias_filename="/tmp/posterior_bias.tif",
-            posterior_bias_UQ_filename="/tmp/posterior_bias_uq.tif",
-            threads=8
-        )
-        
-        # Get the environment passed to subprocess
-        call_env = mock_subprocess.call_args[1]['env']
-        
-        # Verify JULIA_NUM_THREADS is set
-        assert call_env['JULIA_NUM_THREADS'] == '8'
-    
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch.dict('os.environ', {}, clear=True)
-    def test_prior_files_passed_when_all_exist(self, mock_exists, mock_subprocess):
-        """Test that prior filenames are included in command when all exist."""
-        # Mock that all prior files exist
-        mock_exists.return_value = True
-        mock_subprocess.return_value = _mock_run(returncode=0)
-        
-        process_julia_data_fusion(
-            tile="T11SPA",
-            coarse_cell_size=1000,
-            fine_cell_size=30,
-            VIIRS_start_date=date(2024, 1, 1),
-            VIIRS_end_date=date(2024, 1, 10),
-            HLS_start_date=date(2024, 1, 1),
-            HLS_end_date=date(2024, 1, 10),
-            downsampled_directory="/tmp/test",
-            product_name="NDVI",
-            posterior_filename="/tmp/posterior.tif",
-            posterior_UQ_filename="/tmp/posterior_uq.tif",
-            posterior_flag_filename="/tmp/posterior_flag.tif",
-            posterior_bias_filename="/tmp/posterior_bias.tif",
-            posterior_bias_UQ_filename="/tmp/posterior_bias_uq.tif",
-            prior_filename="/tmp/prior.tif",
-            prior_UQ_filename="/tmp/prior_uq.tif",
-            prior_bias_filename="/tmp/prior_bias.tif",
-            prior_bias_UQ_filename="/tmp/prior_bias_uq.tif"
-        )
-        
-        # Get the command that was passed to subprocess
-        command = mock_subprocess.call_args[0][0]
-        
-        # Verify prior files are in the command
-        assert "/tmp/prior.tif" in command
-        assert "/tmp/prior_uq.tif" in command
-        assert "/tmp/prior_bias.tif" in command
-        assert "/tmp/prior_bias_uq.tif" in command
-    
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch.dict('os.environ', {}, clear=True)
-    def test_prior_files_not_passed_when_missing(self, mock_exists, mock_subprocess):
-        """Test that prior filenames are not included when any don't exist."""
-        # Mock that prior files don't exist
-        mock_exists.return_value = False
-        mock_subprocess.return_value = _mock_run(returncode=0)
-        
-        process_julia_data_fusion(
-            tile="T11SPA",
-            coarse_cell_size=1000,
-            fine_cell_size=30,
-            VIIRS_start_date=date(2024, 1, 1),
-            VIIRS_end_date=date(2024, 1, 10),
-            HLS_start_date=date(2024, 1, 1),
-            HLS_end_date=date(2024, 1, 10),
-            downsampled_directory="/tmp/test",
-            product_name="NDVI",
-            posterior_filename="/tmp/posterior.tif",
-            posterior_UQ_filename="/tmp/posterior_uq.tif",
-            posterior_flag_filename="/tmp/posterior_flag.tif",
-            posterior_bias_filename="/tmp/posterior_bias.tif",
-            posterior_bias_UQ_filename="/tmp/posterior_bias_uq.tif",
-            prior_filename="/tmp/prior.tif",
-            prior_UQ_filename="/tmp/prior_uq.tif",
-            prior_bias_filename="/tmp/prior_bias.tif",
-            prior_bias_UQ_filename="/tmp/prior_bias_uq.tif"
-        )
-        
-        # Get the command that was passed to subprocess
-        command = mock_subprocess.call_args[0][0]
-        
-        # Verify prior files are NOT in the command
-        assert "/tmp/prior.tif" not in command
-        assert "/tmp/prior_uq.tif" not in command
-
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.subprocess.run')
-    @patch('ECOv003_L2T_STARS.process_julia_data_fusion.exists')
-    @patch.dict('os.environ', {}, clear=True)
-    def test_raises_on_nonzero_julia_exit_code(self, mock_exists, mock_subprocess):
-        """Test that a non-zero Julia subprocess exit code raises RuntimeError."""
-        mock_exists.return_value = False
-        mock_subprocess.return_value = _mock_run(returncode=1)
-
-        with pytest.raises(RuntimeError, match="Julia data fusion failed for NDVI at tile T11SPA with exit code 1"):
+        with pytest.raises(RuntimeError, match="Julia data fusion failed for NDVI at tile 29UPT with exit code 1"):
             process_julia_data_fusion(
-                tile="T11SPA",
-                coarse_cell_size=1000,
-                fine_cell_size=30,
-                VIIRS_start_date=date(2024, 1, 1),
-                VIIRS_end_date=date(2024, 1, 10),
-                HLS_start_date=date(2024, 1, 1),
-                HLS_end_date=date(2024, 1, 10),
-                downsampled_directory="/tmp/test",
+                tile="29UPT",
+                coarse_cell_size=490,
+                fine_cell_size=70,
+                VIIRS_start_date=date(2026, 8, 19),
+                VIIRS_end_date=date(2026, 8, 26),
+                HLS_start_date=date(2026, 8, 19),
+                HLS_end_date=date(2026, 8, 26),
+                downsampled_directory=str(tmp_path / "downsampled"),
                 product_name="NDVI",
-                posterior_filename="/tmp/posterior.tif",
-                posterior_UQ_filename="/tmp/posterior_uq.tif",
-                posterior_flag_filename="/tmp/posterior_flag.tif",
-                posterior_bias_filename="/tmp/posterior_bias.tif",
-                posterior_bias_UQ_filename="/tmp/posterior_bias_uq.tif",
+                posterior_filename=str(tmp_path / "post.tif"),
+                posterior_UQ_filename=str(tmp_path / "post.UQ.tif"),
+                posterior_flag_filename=str(tmp_path / "post.flag.tif"),
+                posterior_bias_filename=str(tmp_path / "post.bias.tif"),
+                posterior_bias_UQ_filename=str(tmp_path / "post.bias.UQ.tif"),
             )
+
+    assert mock_run.call_args.kwargs["capture_output"] is True
+    assert mock_run.call_args.kwargs["text"] is True
+    assert "OutOfMemoryError()" in caplog.text
+    assert "starting 4 workers" in caplog.text

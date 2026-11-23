@@ -31,6 +31,7 @@ dependencies = [
     "numpy",
     "pandas",
     "pytictoc",
+    "rasterio",
     "rasters",
     "scikit-image",
     "scipy",
@@ -48,12 +49,11 @@ dev = [
     "maturin>=1.8,<2",
     "pytest>=6.0",
     "pytest-cov",
-    "rasterio",
     "twine",
 ]
 
 [project.scripts]
-ECOv003-L2T-STARS = "ECOv003_L2T_STARS.main:main"
+ECOv003-L2T-STARS = "ECOv003_L2T_STARS.L2T_STARS:main"
 ECOv003-DL = "ECOv003_L2T_STARS.ECOv003_DL:main"
 ECOv003-L2T-STARS-install-julia = "ECOv003_L2T_STARS.julia_environment:main"
 

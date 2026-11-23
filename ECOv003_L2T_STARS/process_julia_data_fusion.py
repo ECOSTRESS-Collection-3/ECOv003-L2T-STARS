@@ -36,60 +36,20 @@ def process_julia_data_fusion(
         num_workers: int = 4):
     """
     Executes the Julia-based data fusion process for NDVI or albedo.
-
-    This function prepares and runs a Julia script that performs the core
-    STARS data fusion. It passes all necessary input and output paths,
-    date ranges, and resolution parameters to the Julia script. Optionally,
-    it can also pass prior information to the Julia system.
-
-    Args:
-        tile (str): The HLS tile ID.
-        coarse_cell_size (int): The cell size of the coarse resolution data (e.g., VIIRS).
-        fine_cell_size (int): The cell size of the fine resolution data (e.g., HLS and target).
-        VIIRS_start_date (date): Start date for VIIRS data processing.
-        VIIRS_end_date (date): End date for VIIRS data processing.
-        HLS_start_date (date): Start date for HLS data processing.
-        HLS_end_date (date): End date for HLS data processing.
-        downsampled_directory (str): Directory containing coarse and fine downsampled data.
-        product_name (str): Name of the product, e.g. "NDVI" or "albedo"
-        posterior_filename (str): Output path for the fused posterior mean image.
-        posterior_UQ_filename (str): Output path for the fused posterior uncertainty image.
-        posterior_flag_filename (str): Output path for the fused posterior flag image.
-        posterior_bias_filename (str): Output path for the fused posterior bias image.
-        posterior_bias_UQ_filename (str): Output path for the fused posterior bias uncertainty image.
-        prior_filename (str, optional): Path to the prior mean image. Defaults to None.
-        prior_UQ_filename (str, optional): Path to the prior uncertainty image. Defaults to None.
-        prior_bias_filename (str, optional): Path to the prior bias image. Defaults to None.
-        prior_bias_UQ_filename (str, optional): Path to the prior bias uncertainty image. Defaults to None.
-        environment_name (str, optional): Julia environment name. Defaults to "@ECOv003-L2T-STARS".
-        threads (Union[int, str], optional): Number of Julia threads to use, or "auto".
-                                            Defaults to "auto".
-        num_workers (int, optional): Number of Julia workers for distributed processing.
-                                     Defaults to 4.
     """
-    # Construct the path to the Julia processing script
     julia_script_filename = join(
         abspath(dirname(__file__)), "process_ECOSTRESS_data_fusion_distributed_bias.jl"
     )
-    # The directory where the Julia Project.toml is located
     STARS_source_directory = abspath(dirname(__file__))
 
-    # Instantiate Julia dependencies
     if initialize_julia:
         install_julia()
 
-    # Set up the environment for the julia script
-    # IMPORTANT: Create a COPY of os.environ to avoid modifying system-level environment variables.
-    # This ensures that we only modify the environment for this subprocess call,
-    # preserving the system-level GDAL configuration for other parts of the application.
     julia_env = os.environ.copy()
     julia_env["JULIA_NUM_THREADS"] = str(threads)
-    # Ensure that julia uses its own bundled GDAL instead of conda's GDAL
-    # We remove these from the copy only - the system environment remains unchanged
     julia_env.pop("GDAL_DATA", None)
     julia_env.pop("GDAL_DRIVER_PATH", None)
 
-    # Base Julia command with required arguments
     command = [
         *find_julia_command(STARS_source_directory), f"--project={STARS_source_directory}", "--threads", f"{threads}", julia_script_filename,
         f"{num_workers}",
@@ -103,7 +63,6 @@ def process_julia_data_fusion(
         posterior_bias_filename, posterior_bias_UQ_filename,
     ]
 
-    # Conditionally add prior arguments if all prior filenames are provided and exist
     if all(
         [
             filename is not None and exists(filename)
@@ -124,9 +83,23 @@ def process_julia_data_fusion(
         logger.info("No complete prior set found; running Julia data fusion without prior.")
 
     logger.info(f"Executing Julia command: {' '.join(command)}")
-    # Execute the Julia command directly on the inherited console TTY
-    result = subprocess.run(command, check=False, env=julia_env)
+    result = subprocess.run(
+        command,
+        check=False,
+        env=julia_env,
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout:
+        for line in result.stdout.splitlines():
+            logger.info(line)
     if result.returncode != 0:
+        if result.stderr:
+            stderr_lines = result.stderr.strip().splitlines()
+            tail = "\n".join(stderr_lines[-50:])
+            logger.error(
+                f"Julia stderr for {product_name} at tile {tile} (exit code {result.returncode}):\n{tail}"
+            )
         raise RuntimeError(
             f"Julia data fusion failed for {product_name} at tile {tile} with exit code {result.returncode}"
         )
