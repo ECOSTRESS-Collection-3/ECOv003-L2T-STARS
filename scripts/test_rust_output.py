@@ -15,9 +15,9 @@ import colored_logging as cl
 import rasterio
 
 from ECOv003_L2T_STARS.process_rust_data_fusion import process_rust_data_fusion
-from test_julia_output import PRODUCTS, SUFFIXES, compute_layer_stats, print_comparison_table
+from pathlib import Path as _P; import sys as _S; _S.path.insert(0, str(_P(__file__).resolve().parent)); from test_julia_output import PRODUCTS, SUFFIXES, compute_layer_stats, print_comparison_table
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BUNDLE_DIR = REPO_ROOT / "test_bundle"
 
 

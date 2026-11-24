@@ -16,7 +16,7 @@ import rasterio
 
 from ECOv003_L2T_STARS.process_julia_data_fusion import process_julia_data_fusion
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BUNDLE_DIR = REPO_ROOT / "test_bundle"
 
 PRODUCTS = [

@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "ECOv003_L2T_STARS"
 MANIFEST = PROJECT / "Manifest.toml"
 
