@@ -12,6 +12,8 @@ authors = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Rust",
     "Operating System :: OS Independent",
@@ -23,7 +25,7 @@ dependencies = [
     "ECOv003-exit-codes~=1.2.0",
     "ECOv003-granules~=1.14.0",
     "earthaccess~=0.19.0",
-    "GEOS5FP~=2.24.0",
+    "GEOS5FP~=2.27.0",
     "h5py~=3.14.0",
     "harmonized-landsat-sentinel~=2.4.0",
     "matplotlib~=3.10.9",
@@ -46,6 +48,7 @@ requires-python = ">=3.12"
 [project.optional-dependencies]
 dev = [
     "build",
+    "jupyter",
     "maturin>=1.8,<2",
     "pytest>=6.0",
     "pytest-cov",
