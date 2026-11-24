@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ECOv003-L2T-STARS"
-version = "1.18.0"
+version = "1.19.0"
 description = "ECOSTRESS Collection 3 L2T STARS PGE"
 readme = "README.md"
 authors = [
@@ -18,29 +18,30 @@ classifiers = [
 ]
 dependencies = [
     "colored-logging~=1.1.0",
-    "ECOv002-CMR",
-    "ECOv002-granules",
+    "ECOv002-CMR~=1.4.1",
+    "ECOv002-granules~=1.2.1",
     "ECOv003-exit-codes~=1.2.0",
-    "ECOv003-granules",
-    "earthaccess",
+    "ECOv003-granules~=1.14.0",
+    "earthaccess~=0.19.0",
     "GEOS5FP~=2.24.0",
-    "h5py",
-    "harmonized-landsat-sentinel",
-    "matplotlib",
+    "h5py~=3.14.0",
+    "harmonized-landsat-sentinel~=2.4.0",
+    "matplotlib~=3.10.9",
     "modland~=1.2.0",
-    "numpy",
-    "pandas",
-    "pytictoc",
-    "rasters",
-    "scikit-image",
-    "scipy",
+    "numpy~=2.5.4",
+    "pandas~=3.1.1",
+    "pytictoc~=1.5.3",
+    "rasterio~=1.5.2",
+    "rasters~=1.21.0",
+    "scikit-image~=0.26.0",
+    "scipy~=1.18.1",
     "sentinel-tiles~=1.1.1",
     "shapely~=2.2.0",
     "untangle~=1.3.0",
     "VCD43NRT~=1.6.0",
     "xmltodict~=1.0.4",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 
 [project.optional-dependencies]
 dev = [
@@ -48,12 +49,11 @@ dev = [
     "maturin>=1.8,<2",
     "pytest>=6.0",
     "pytest-cov",
-    "rasterio",
     "twine",
 ]
 
 [project.scripts]
-ECOv003-L2T-STARS = "ECOv003_L2T_STARS.main:main"
+ECOv003-L2T-STARS = "ECOv003_L2T_STARS.L2T_STARS:main"
 ECOv003-DL = "ECOv003_L2T_STARS.ECOv003_DL:main"
 ECOv003-L2T-STARS-install-julia = "ECOv003_L2T_STARS.julia_environment:main"
 

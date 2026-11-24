@@ -1,8 +1,8 @@
 import logging
 import shutil
 from datetime import datetime, date
-from os import remove
-from os.path import basename, exists
+from os import makedirs, remove
+from os.path import basename, exists, join
 from typing import Literal, Union
 
 import colored_logging as cl
@@ -15,10 +15,10 @@ from ECOv003_exit_codes import BlankOutput
 from VCD43NRT import VCD43NRT
 
 from .constants import *
-from .generate_model_state_tile_date_directory import generate_model_state_tile_date_directory
 from .generate_STARS_inputs import generate_STARS_inputs
 from .generate_filename import generate_filename
 from .process_rust_data_fusion import process_rust_data_fusion
+from .version import __version__
 
 from .prior import Prior
 
@@ -178,10 +178,13 @@ def process_STARS_product(
         f"(backend={cl.val(backend)})"
     )
 
-    # Define and create the directory for storing posterior model state files
-    posterior_tile_date_directory = generate_model_state_tile_date_directory(
-        model_directory=model_directory, tile=tile, date_UTC=date_UTC
+    # Isolate intermediate posterior outputs per granule ID so concurrent workers
+    # processing different scenes on the same (tile, date_UTC) never race on cleanup.
+    granule_ID = basename(L2T_STARS_granule_directory)
+    posterior_tile_date_directory = join(
+        model_directory, tile, f"{date_UTC:%Y-%m-%d}", granule_ID
     )
+    makedirs(posterior_tile_date_directory, exist_ok=True)
     logger.info(f"Posterior directory: {cl.dir(posterior_tile_date_directory)}")
 
     # Generate the actual input raster files (coarse and fine images)
@@ -494,6 +497,7 @@ def process_STARS_product(
     granule.add_layer("albedo-flag", albedo_flag, cmap="jet")
 
     # Update metadata and write to the granule
+    metadata["StandardMetadata"]["PGEVersion"] = __version__
     metadata["StandardMetadata"]["BuildID"] = build
     metadata["StandardMetadata"]["LocalGranuleID"] = basename(L2T_STARS_zip_filename)
     metadata["StandardMetadata"]["SISName"] = "Level 2 STARS Product Specification Document"
@@ -598,3 +602,5 @@ def process_STARS_product(
             if f is not None and exists(f):
                 logger.info(f"Removing posterior file: {cl.file(f)}")
                 remove(f)
+        if exists(posterior_tile_date_directory):
+            shutil.rmtree(posterior_tile_date_directory, ignore_errors=True)

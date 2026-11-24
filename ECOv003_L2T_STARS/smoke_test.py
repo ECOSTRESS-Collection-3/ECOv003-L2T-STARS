@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import pkgutil
 import subprocess
 import tempfile
@@ -8,7 +9,7 @@ import numpy as np
 
 
 def test_python() -> list[str]:
-    """Run import and dummy callable tests for the Python environment."""
+    """Run import, GDAL plugin, upstream API contract, and dummy callable tests."""
     import ECOv003_L2T_STARS
     from ECOv003_L2T_STARS.generate_filename import generate_filename
     from ECOv003_L2T_STARS.runconfig import parse_runconfig
@@ -35,6 +36,43 @@ def test_python() -> list[str]:
         print("OK    Python dummy calls")
     except Exception as e:
         msg = f"FAIL  Python dummy calls -> {e}"
+        print(msg)
+        failed.append(msg)
+
+    # Verify GDAL NetCDF4 / HDF5 drivers required for GEOS-5 FP .nc4 ingestion
+    try:
+        import rasterio
+        with rasterio.Env():
+            from osgeo import gdal
+            netcdf_drv = gdal.GetDriverByName("netCDF")
+            hdf5_drv = gdal.GetDriverByName("HDF5")
+            if netcdf_drv is None and hdf5_drv is None:
+                raise RuntimeError("Neither GDAL 'netCDF' nor 'HDF5' driver is available")
+        print("OK    GDAL NetCDF/HDF5 driver availability")
+    except ImportError:
+        print("SKIP  osgeo.gdal not exposed directly; rasterio imported cleanly")
+    except Exception as e:
+        msg = f"FAIL  GDAL NetCDF/HDF5 driver check -> {e}"
+        print(msg)
+        failed.append(msg)
+
+    # Verify upstream VCD43NRT & HLS2Connection API contract
+    try:
+        from VCD43NRT import VCD43NRT
+        from harmonized_landsat_sentinel import HLS2Connection
+
+        vcd_sig = inspect.signature(VCD43NRT.__init__)
+        for param in ("VCD43NRT_staging_directory", "fallback_mode", "mission_priority"):
+            assert param in vcd_sig.parameters, f"VCD43NRT.__init__ missing '{param}'"
+        assert callable(getattr(VCD43NRT, "prefetch_VNP09GA", None))
+        assert callable(getattr(VCD43NRT, "NDVI", None))
+        assert callable(getattr(VCD43NRT, "albedo", None))
+        assert callable(getattr(HLS2Connection, "listing", None))
+        assert callable(getattr(HLS2Connection, "NDVI", None))
+        assert callable(getattr(HLS2Connection, "albedo", None))
+        print("OK    Upstream VCD43NRT / HLS2Connection API contract")
+    except Exception as e:
+        msg = f"FAIL  Upstream VCD43NRT / HLS2Connection API contract -> {e}"
         print(msg)
         failed.append(msg)
 
